@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  mcp-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: mcp-gateway-mcp
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./mcp-config.json:/app/mcp-config.json
+    environment:
+      - NODE_ENV=production
+      - MCP_PROXY_URL=ws://host.docker.internal:9999
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: node dist/index.js

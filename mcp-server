@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+
+// MCP Gateway サーバー起動スクリプト
+import { spawn } from 'child_process';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+process.chdir(__dirname);
+
+// npm run mcpを実行
+const child = spawn('npm', ['run', 'mcp'], {
+  stdio: 'inherit',
+  shell: true
+});
+
+child.on('exit', (code) => {
+  process.exit(code);
+});

@@ -5,13 +5,12 @@
 ## 🚀 クイックスタート
 
 ```bash
-# フォアグラウンドで起動（ログ表示）
-./start.sh
-# 停止: Ctrl+C
+# MCP Gatewayを起動
+npm run gateway
+# 停止: Ctrl+C または npm run gateway:stop
 
-# デーモンモードで起動（バックグラウンド）
-./start-daemon.sh
-# 停止: ./stop-daemon.sh
+# ログを見る
+npm run docker:logs
 ```
 
 - **UI**: http://localhost:3002
@@ -22,7 +21,7 @@
 ### 1. 起動
 
 ```bash
-./start.sh
+npm run gateway
 ```
 
 ### 2. 動作確認
@@ -153,13 +152,18 @@ open ~/Library/Application\ Support/Claude/claude_desktop_config.json
 {
   "mcpServers": {
     "mcp-gateway": {
-      "command": "docker",
-      "args": ["run", "--rm", "-i", "--network", "mcp-gateway_default", "mcp-gateway-server", "node", "dist/index.js"],
-      "env": {}
+      "command": "/path/to/mcp-gateway/mcp-server"
     }
   }
 }
 ```
+
+シンプルで分かりやすい設定です。`mcp-server`スクリプトがすべて処理します。
+
+`npm run mcp` コマンドが自動的に：
+- プロキシサーバーを起動（ローカルMCPサーバーとの通信用）
+- MCP専用のDockerコンテナを起動（stdio接続）
+- Claude DesktopとMCPプロトコルで通信
 
 #### Claude Code (CLI)
 
@@ -253,11 +257,34 @@ filesystem.list_directory
 [サーバー名].[ツール名]
 ```
 
+## 📋 npmコマンド一覧
+
+```bash
+# ゲートウェイ関連
+npm run gateway       # プロキシとDockerを起動（Web UI用）
+npm run gateway:stop  # すべて停止
+npm run docker:logs   # ログを表示
+npm run docker:down   # Dockerコンテナを停止
+
+# Claude Desktop用
+npm run mcp          # MCPサーバーとして起動（stdio接続）
+
+# 開発用
+npm run dev          # 開発モード（サーバーとクライアント）
+npm run build        # ビルド
+npm run build:server # サーバーのみビルド
+npm run lint         # Lintチェック
+
+# その他
+npm run proxy        # プロキシサーバーのみ起動
+npm run docker:up    # Dockerコンテナのみ起動
+```
+
 ## 🔧 トラブルシューティング
 
 ```bash
 # ログ確認
-docker-compose logs -f mcp-gateway-server
+npm run docker:logs
 tail -f proxy.log
 
 # ポート確認
@@ -266,6 +293,7 @@ lsof -i :3003  # API
 lsof -i :9999  # プロキシ
 
 # 再起動
-./start.sh
+npm run gateway:stop
+npm run gateway
 ```
 
