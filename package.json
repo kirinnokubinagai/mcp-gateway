@@ -10,14 +10,11 @@
     "build": "tsc -b && vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "gateway": "concurrently -k \"npm run proxy\" \"npm run docker:up\"",
-    "gateway:stop": "docker-compose down && pkill -f 'node.*server.js' || true",
-    "proxy": "cd mcp-proxy-server && npm install && node server.js",
-    "docker:up": "docker-compose up -d --build",
-    "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f",
-    "mcp": "concurrently -k \"npm run proxy\" \"docker-compose -f docker-compose.mcp.yml run --rm mcp-gateway\""
+    "start": "concurrently -k \"npm run proxy\" \"docker-compose up\"",
+    "stop": "docker-compose down && pkill -f 'node.*server.js' || true",
+    "logs": "docker-compose logs -f",
+    "mcp": "concurrently -k \"npm run proxy\" \"docker-compose -f docker-compose.mcp.yml run --rm mcp-gateway\"",
+    "proxy": "cd mcp-proxy-server && npm install && node server.js"
   },
   "dependencies": {
     "@hono/node-server": "^1.0.0",
