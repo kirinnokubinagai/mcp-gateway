@@ -23,27 +23,62 @@
 
 ## 🐳 他のDockerコンテナ内のClaude Codeから使用
 
-Dockerコンテナ内でClaude Codeを実行している場合：
+### 前提条件
+先に`npm run gateway`でMCP Gatewayを起動しておく必要があります。
 
+### 方法1: Dockerソケットをマウント
 ```yaml
-# あなたのdocker-compose.yml
+# docker-compose.yml
 services:
   claude-dev:
     image: your-claude-code-image
     volumes:
-      - ./mcp-gateway:/mcp-gateway  # MCP Gatewayプロジェクトをマウント
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - mcp-gateway_default
-    working_dir: /mcp-gateway
-
-networks:
-  mcp-gateway_default:
-    external: true
 ```
 
 ```bash
 # コンテナ内で実行
-claude mcp add gateway npm run mcp
+claude mcp add gateway \
+  docker exec -i mcp-gateway-server node dist/index.js
+```
+
+### 方法2: ブリッジスクリプト経由
+コンテナ内に以下のスクリプトを配置：
+
+```javascript
+// /app/mcp-gateway-bridge.js
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+const server = new Server(
+  { name: 'mcp-gateway', version: '1.0.0' },
+  { capabilities: { tools: {} } }
+);
+
+server.setRequestHandler('tools/list', async () => {
+  const res = await fetch('http://mcp-gateway-server:3003/api/tools');
+  const data = await res.json();
+  return { tools: data.tools };
+});
+
+server.setRequestHandler('tools/call', async (request) => {
+  const res = await fetch('http://mcp-gateway-server:3003/api/tools/call', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request.params)
+  });
+  return await res.json();
+});
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
+
+```bash
+# コンテナ内で実行
+claude mcp add gateway node /app/mcp-gateway-bridge.js
 ```
 
 ## 📡 API エンドポイント
