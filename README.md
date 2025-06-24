@@ -43,7 +43,7 @@ npm run logs
 
 ## 🐳 他のDockerコンテナから使用
 
-### 1. docker-compose.ymlに追加
+### docker-compose.ymlに追加
 ```yaml
 services:
   your-app:
@@ -55,27 +55,6 @@ networks:
   mcp-gateway_default:
     external: true
 ```
-
-### 2. APIでツールを実行
-```bash
-# ツール一覧を取得
-curl http://mcp-gateway-server:3003/api/tools
-
-# ツールを実行
-curl -X POST http://mcp-gateway-server:3003/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "filesystem.read_file",
-    "arguments": {"path": "/path/to/file"}
-  }'
-```
-
-## 📡 API エンドポイント
-
-- `GET /api/tools` - 利用可能なツール一覧
-- `POST /api/tools/call` - ツールを実行
-- `GET /api/config` - 設定情報
-- `GET /api/servers` - 接続中のMCPサーバー一覧
 
 
 
