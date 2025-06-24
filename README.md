@@ -38,34 +38,10 @@ npm run logs
 }
 ```
 
-## 🐳 他のDockerコンテナ内のClaude Codeから使用
+## 🐳 他のDockerコンテナから使用
 
-### docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  claude-dev:
-    image: your-claude-code-image
-    volumes:
-      - ./your-project:/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - mcp-gateway_default
-
-networks:
-  mcp-gateway_default:
-    external: true
-```
-
-### 接続方法
-
-```bash
-# コンテナ内で実行
-claude mcp add gateway \
-  docker exec -i mcp-gateway-server node dist/index.js
-```
+MCP Gatewayは`http://mcp-gateway-server:3003`でAPIを提供しています。
+同じDockerネットワーク内の他のコンテナからHTTP経由でツールを実行できます。
 
 ## 📡 API エンドポイント
 
@@ -74,63 +50,6 @@ claude mcp add gateway \
 - `GET /api/config` - 設定情報
 - `GET /api/servers` - 接続中のMCPサーバー一覧
 
-## 🛠️ 利用可能なツール例
 
-```
-# ゲートウェイ管理
-gateway.list_servers          # 接続されたMCPサーバー一覧
 
-# ファイルシステム（filesystem MCPサーバー経由）
-filesystem.read_file          # ファイル読み取り
-filesystem.write_file         # ファイル書き込み
-filesystem.list_directory     # ディレクトリ一覧
-
-# GitHub（github MCPサーバー経由）
-github.create_issue           # Issue作成
-github.create_pull_request    # PR作成
-github.search_repositories    # リポジトリ検索
-
-# その他のMCPサーバー
-[サーバー名].[ツール名]      # 各MCPサーバーのツール
-```
-
-## 📋 npmコマンド一覧
-
-```bash
-# ゲートウェイ関連
-npm run gateway       # プロキシとDockerを起動（Web UI用）
-npm run gateway:stop  # すべて停止
-npm run docker:logs   # ログを表示
-npm run docker:down   # Dockerコンテナを停止
-
-# Claude Desktop用
-npm run mcp          # MCPサーバーとして起動（stdio接続）
-
-# 開発用
-npm run dev          # 開発モード（サーバーとクライアント）
-npm run build        # ビルド
-npm run build:server # サーバーのみビルド
-npm run lint         # Lintチェック
-
-# その他
-npm run proxy        # プロキシサーバーのみ起動
-npm run docker:up    # Dockerコンテナのみ起動
-```
-
-## 🔧 トラブルシューティング
-
-```bash
-# ログ確認
-npm run docker:logs
-tail -f proxy.log
-
-# ポート確認
-lsof -i :3002  # UI
-lsof -i :3003  # API
-lsof -i :9999  # プロキシ
-
-# 再起動
-npm run gateway:stop
-npm run gateway
-```
 
