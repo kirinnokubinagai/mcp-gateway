@@ -40,8 +40,32 @@ npm run logs
 
 ## 🐳 他のDockerコンテナから使用
 
-MCP Gatewayは`http://mcp-gateway-server:3003`でAPIを提供しています。
-同じDockerネットワーク内の他のコンテナからHTTP経由でツールを実行できます。
+### 1. docker-compose.ymlに追加
+```yaml
+services:
+  your-app:
+    image: your-image
+    networks:
+      - mcp-gateway_default
+
+networks:
+  mcp-gateway_default:
+    external: true
+```
+
+### 2. APIでツールを実行
+```bash
+# ツール一覧を取得
+curl http://mcp-gateway-server:3003/api/tools
+
+# ツールを実行
+curl -X POST http://mcp-gateway-server:3003/api/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "filesystem.read_file",
+    "arguments": {"path": "/path/to/file"}
+  }'
+```
 
 ## 📡 API エンドポイント
 
