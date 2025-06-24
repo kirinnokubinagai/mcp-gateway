@@ -28,32 +28,18 @@ npm run logs
 
 ## 🤖 Claude Desktopでの使用
 
-### 前提条件
-先に`npm start`でゲートウェイを起動しておく必要があります。
+**現在の制限事項**: DockerコンテナからホストのMCPサーバーへのアクセスは技術的な制約により利用できません。
 
-### 方法1: claude mcp add（推奨）
+### 代替方法
+
+1. **Web UIを使用** - http://localhost:3002 でMCPサーバーの管理
+2. **APIを使用** - http://localhost:3003 で他のアプリケーションから利用
+3. **個別のMCPサーバーを直接Claude Desktopに設定**
 
 ```bash
-# mcp-serverスクリプトを使用（cwdが使えないため）
-claude mcp add gateway /absolute/path/to/mcp-gateway/mcp-server
+# 例: Obsidianサーバーを直接追加
+claude mcp add obsidian npx -y @modelcontextprotocol/server-obsidian "/path/to/vault"
 ```
-
-### 方法2: 手動設定
-
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "gateway": {
-      "command": "/absolute/path/to/mcp-gateway/mcp-server"
-    }
-  }
-}
-```
-
-**注意**: 
-- `claude mcp add`はcwdオプションをサポートしていないため、絶対パスで`mcp-server`スクリプトを指定する必要があります
-- 先に`npm start`でプロキシサーバーとDockerコンテナを起動しておく必要があります
 
 ## 🐳 他のDockerコンテナから使用
 

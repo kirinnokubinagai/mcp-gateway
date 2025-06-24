@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "obsidian": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-obsidian", "/Users/kirinnokubinagaiyo/Documents/Obsidian Vault"],
+      "env": {},
+      "enabled": true
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "env": {},
+      "enabled": true
+    }
+  }
+}
