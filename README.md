@@ -28,18 +28,27 @@ npm run logs
 
 ## 🤖 Claude Desktopでの使用
 
+### 方法1: claude mcp add（推奨）
+
+```bash
+# mcp-serverスクリプトを使用（cwdが使えないため）
+claude mcp add gateway /absolute/path/to/mcp-gateway/mcp-server
+```
+
+### 方法2: 手動設定
+
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "mcp-gateway": {
-      "command": "npm",
-      "args": ["run", "mcp"],
-      "cwd": "/absolute/path/to/mcp-gateway"
+    "gateway": {
+      "command": "/absolute/path/to/mcp-gateway/mcp-server"
     }
   }
 }
 ```
+
+**注意**: `claude mcp add`はcwdオプションをサポートしていないため、絶対パスで`mcp-server`スクリプトを指定する必要があります。
 
 ## 🐳 他のDockerコンテナから使用
 
