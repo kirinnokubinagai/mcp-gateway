@@ -88,7 +88,7 @@ function expandEnvVariables<T>(obj: T): T {
 // MCPクライアントの作成と接続
 async function connectToMCPServer(name: string, config: ServerConfig) {
   try {
-    console.log(`MCPサーバーに接続中: ${name}`);
+    console.error(`MCPサーバーに接続中: ${name}`);
     
     const expandedConfig = {
       command: expandEnvVariables(config.command),
@@ -100,7 +100,7 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     
     // WebSocketプロキシ経由での接続
     if (process.env.MCP_PROXY_URL) {
-      console.log(`WebSocketプロキシ経由で接続: ${process.env.MCP_PROXY_URL}`);
+      console.error(`WebSocketプロキシ経由で接続: ${process.env.MCP_PROXY_URL}`);
       transport = new WebSocketTransport({
         url: process.env.MCP_PROXY_URL,
         command: expandedConfig.command,
@@ -122,19 +122,19 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     );
     
     // 接続を確立
-    console.log(`${name}: connect()を呼び出し中...`);
+    console.error(`${name}: connect()を呼び出し中...`);
     await client.connect(transport);
-    console.log(`${name}: connect()完了`);
+    console.error(`${name}: connect()完了`);
     
     // 接続が安定するまで少し待つ（obsidianは初期化に時間がかかる）
-    console.log(`${name}: 2秒待機中...`);
+    console.error(`${name}: 2秒待機中...`);
     await new Promise(resolve => setTimeout(resolve, 2000));
-    console.log(`${name}: 待機完了`);
+    console.error(`${name}: 待機完了`);
     
     let tools: any[] = [];
     let toolsError: string | undefined;
     try {
-      console.log(`${name}のツールリストを取得中...`);
+      console.error(`${name}のツールリストを取得中...`);
       // 30秒のタイムアウトでlistToolsを試行
       const listToolsPromise = client.listTools();
       const timeoutPromise = new Promise<never>((_, reject) => 
@@ -142,11 +142,11 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       );
       const response = await Promise.race([listToolsPromise, timeoutPromise]);
       tools = response.tools || [];
-      console.log(`${name}のツール取得成功: ${tools.length}個`);
+      console.error(`${name}のツール取得成功: ${tools.length}個`);
     } catch (error) {
       toolsError = (error as Error).message;
       console.warn(`ツールリスト取得エラー ${name}:`, toolsError);
-      console.log(`${name}: ツールリストは取得できませんでしたが、接続は維持します`);
+      console.error(`${name}: ツールリストは取得できませんでしたが、接続は維持します`);
     }
     
     // listToolsが失敗してもサーバーは接続済みとして扱う
@@ -158,7 +158,7 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       status: 'connected'
     });
     
-    console.log(`接続完了: ${name}, ツール数: ${tools.length}`);
+    console.error(`接続完了: ${name}, ツール数: ${tools.length}`);
     return { success: true, tools };
   } catch (error) {
     console.error(`接続失敗 ${name}:`, error);
@@ -428,7 +428,7 @@ async function main() {
     fetch: app.fetch,
     port: API_PORT,
   }, () => {
-    console.log(`MCP Gateway API: http://localhost:${API_PORT}`);
+    console.error(`MCP Gateway API: http://localhost:${API_PORT}`);
   });
   
   // MCPサーバーを起動

@@ -22,7 +22,7 @@ export class WebSocketTransport implements Transport {
   constructor(private options: WebSocketTransportOptions) {}
 
   async start(): Promise<void> {
-    console.log(`WebSocketプロキシに接続中: ${this.options.url}`);
+    console.error(`WebSocketプロキシに接続中: ${this.options.url}`);
     
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(this.options.url);
@@ -33,7 +33,7 @@ export class WebSocketTransport implements Transport {
       }, 30000);
       
       this.ws.on('open', () => {
-        console.log('WebSocket接続成功、MCPサーバーを初期化中...');
+        console.error('WebSocket接続成功、MCPサーバーを初期化中...');
         clearTimeout(timeout);
         
         // 初期化メッセージを送信
@@ -50,7 +50,7 @@ export class WebSocketTransport implements Transport {
           const message = JSON.parse(data.toString());
           
           if (message.type === 'ready') {
-            console.log('MCPサーバーの準備完了');
+            console.error('MCPサーバーの準備完了');
             
             // 準備完了後、stdout/stderrメッセージを処理
             this.ws!.removeAllListeners('message');
@@ -63,21 +63,21 @@ export class WebSocketTransport implements Transport {
                   for (const line of lines) {
                     try {
                       const jsonRpcMessage = JSON.parse(line);
-                      console.log('JSON-RPCメッセージ受信:', JSON.stringify(jsonRpcMessage));
+                      console.error('JSON-RPCメッセージ受信:', JSON.stringify(jsonRpcMessage));
                       if (this.onmessage) {
                         this.onmessage(jsonRpcMessage);
                       }
                     } catch (e) {
                       // JSON以外の行は無視
                       if (line.trim()) {
-                        console.log('非JSONメッセージ:', line);
+                        console.error('非JSONメッセージ:', line);
                       }
                     }
                   }
                 } else if (msg.type === 'stderr') {
                   console.error('MCPサーバーエラー:', msg.data);
                 } else if (msg.type === 'exit') {
-                  console.log('MCPプロセス終了:', msg.code);
+                  console.error('MCPプロセス終了:', msg.code);
                   if (this.onclose) {
                     this.onclose();
                   }
@@ -107,7 +107,7 @@ export class WebSocketTransport implements Transport {
       });
 
       this.ws.on('close', (code, reason) => {
-        console.log(`WebSocket接続が閉じられました: code=${code}, reason=${reason}`);
+        console.error(`WebSocket接続が閉じられました: code=${code}, reason=${reason}`);
         if (this.onclose) {
           this.onclose();
         }
@@ -121,7 +121,7 @@ export class WebSocketTransport implements Transport {
     }
 
     const data = JSON.stringify(message) + '\n';
-    console.log('JSON-RPCメッセージ送信:', data.trim());
+    console.error('JSON-RPCメッセージ送信:', data.trim());
     
     // MCPメッセージをstdinとして送信
     this.ws.send(JSON.stringify({
