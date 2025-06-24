@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  mcp-gateway-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: mcp-gateway-server
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./mcp-config.json:/app/mcp-config.json
+    environment:
+      - NODE_ENV=production
+      - MCP_PROXY_URL=ws://host.docker.internal:9999
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  mcp-gateway-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: mcp-gateway-client
+    ports:
+      - "3002:3002"
+    environment:
+      - API_URL=http://mcp-gateway-server:3003
+      - CLIENT_PORT=3002
+    depends_on:
+      - mcp-gateway-server
+    restart: unless-stopped

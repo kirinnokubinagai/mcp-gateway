@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+
+  # MCPクライアントのテスト用コンテナ
+  mcp-test-client:
+    image: node:20-slim
+    container_name: mcp-test-client
+    volumes:
+      - ./examples/test-client:/app
+    working_dir: /app
+    environment:
+      - MCP_GATEWAY_URL=http://mcp-gateway-server:3003
+    networks:
+      - mcp-gateway_default
+    stdin_open: true
+    tty: true
+    command: |
+      bash -c "
+        npm install @modelcontextprotocol/sdk node-fetch &&
+        node test-connection.js
+      "
+
+# MCP Gatewayと同じネットワークを使用
+networks:
+  mcp-gateway_default:
+    external: true
