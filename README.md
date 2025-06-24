@@ -23,79 +23,29 @@
 
 ## 🐳 他のDockerコンテナ内のClaude Codeから使用
 
-Dockerコンテナ内でClaude Codeを実行している場合、MCP Gatewayに接続する方法：
+Dockerコンテナ内でClaude Codeを実行している場合、MCP Gatewayに直接接続できます：
 
-### 1. docker-compose.ymlの設定
+```bash
+# コンテナ内で実行
+claude mcp add gateway \
+  docker exec -i mcp-gateway-server node dist/index.js
+```
+
+または、docker-compose.ymlで環境を設定：
 
 ```yaml
 # あなたのdocker-compose.yml
 services:
   claude-dev:
     image: your-claude-code-image
-    environment:
-      - MCP_GATEWAY_URL=http://mcp-gateway-server:3003
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - mcp-gateway_default
 
 networks:
   mcp-gateway_default:
     external: true
-```
-
-### 2. MCP Gatewayクライアントを作成
-
-コンテナ内に以下のスクリプトを配置：
-
-```javascript
-// /app/mcp-gateway-client.js
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-
-const GATEWAY_URL = process.env.MCP_GATEWAY_URL || 'http://mcp-gateway-server:3003';
-
-const server = new Server(
-  { name: 'mcp-gateway-client', version: '1.0.0' },
-  { capabilities: { tools: {} } }
-);
-
-server.setRequestHandler('tools/list', async () => {
-  const res = await fetch(`${GATEWAY_URL}/api/tools`);
-  const data = await res.json();
-  return { tools: data.tools };
-});
-
-server.setRequestHandler('tools/call', async (request) => {
-  const res = await fetch(`${GATEWAY_URL}/api/tools/call`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request.params)
-  });
-  return await res.json();
-});
-
-const transport = new StdioServerTransport();
-await server.connect(transport);
-```
-
-### 3. Claude CodeにMCPサーバーを追加
-
-```bash
-# コンテナ内で実行
-claude mcp add gateway node /app/mcp-gateway-client.js
-```
-
-### 4. APIを直接使用する場合
-
-```javascript
-// あなたのアプリケーションコード
-const response = await fetch('http://mcp-gateway-server:3003/api/tools/call', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    name: 'filesystem.read_file',  // または 'github.create_issue' など
-    arguments: { path: '/tmp/test.txt' }
-  })
-});
 ```
 
 ## 📡 API エンドポイント
