@@ -28,24 +28,18 @@ npm run logs
 
 ## 🤖 Claude Desktopでの使用
 
-### 1. mcp-serverに実行権限を付与
-```bash
-chmod +x /path/to/mcp-gateway/mcp-server
-```
-
-### 2. Claude Desktop設定に追加
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
     "mcp-gateway": {
-      "command": "/absolute/path/to/mcp-gateway/mcp-server"
+      "command": "npm",
+      "args": ["run", "mcp"],
+      "cwd": "/absolute/path/to/mcp-gateway"
     }
   }
 }
 ```
-
-※ mcp-serverスクリプトが`npm run mcp`を実行し、プロキシサーバーとDockerコンテナを起動します
 
 ## 🐳 他のDockerコンテナから使用
 
