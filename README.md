@@ -45,7 +45,7 @@ chmod +x /path/to/mcp-gateway/mcp-server
 }
 ```
 
-※ 絶対パスで指定してください
+※ mcp-serverスクリプトが`npm run mcp`を実行し、プロキシサーバーとDockerコンテナを起動します
 
 ## 🐳 他のDockerコンテナから使用
 
