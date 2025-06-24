@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-// MCP Gateway サーバー起動スクリプト
 import { spawn } from 'child_process';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -10,10 +9,9 @@ const __dirname = dirname(__filename);
 
 process.chdir(__dirname);
 
-// npm run mcpを実行
-const child = spawn('npm', ['run', 'mcp'], {
-  stdio: 'inherit',
-  shell: true
+// docker-compose runを直接実行（プロキシはdocker-compose upで既に起動済み想定）
+const child = spawn('docker-compose', ['run', '--rm', 'mcp-gateway-server'], {
+  stdio: 'inherit'
 });
 
 child.on('exit', (code) => {

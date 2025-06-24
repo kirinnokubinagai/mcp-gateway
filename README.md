@@ -28,6 +28,9 @@ npm run logs
 
 ## 🤖 Claude Desktopでの使用
 
+### 前提条件
+先に`npm start`でゲートウェイを起動しておく必要があります。
+
 ### 方法1: claude mcp add（推奨）
 
 ```bash
@@ -48,7 +51,9 @@ claude mcp add gateway /absolute/path/to/mcp-gateway/mcp-server
 }
 ```
 
-**注意**: `claude mcp add`はcwdオプションをサポートしていないため、絶対パスで`mcp-server`スクリプトを指定する必要があります。
+**注意**: 
+- `claude mcp add`はcwdオプションをサポートしていないため、絶対パスで`mcp-server`スクリプトを指定する必要があります
+- 先に`npm start`でプロキシサーバーとDockerコンテナを起動しておく必要があります
 
 ## 🐳 他のDockerコンテナから使用
 
