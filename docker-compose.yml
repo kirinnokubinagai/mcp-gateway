@@ -12,7 +12,6 @@ services:
       - ./mcp-config.json:/app/mcp-config.json
     environment:
       - NODE_ENV=production
-      - HOST_PATH=${PATH}
       # プロキシは無効化（直接実行モード）
       # - MCP_PROXY_URL=ws://docker.for.mac.localhost:9999
     extra_hosts:
