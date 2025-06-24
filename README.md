@@ -21,65 +21,69 @@
 }
 ```
 
+## 🏗️ アーキテクチャ
+
+MCP Gatewayは3つのコンポーネントで構成されています：
+
+1. **プロキシサーバー** (ws://localhost:9999)
+   - ホストで動作（mcp-proxy-server/server.js）
+   - DockerコンテナからホストのMCPサーバーへのアクセスを仲介
+   - WebSocket通信でstdin/stdoutをトンネリング
+
+2. **mcp-gateway-server** (http://localhost:3003)
+   - MCPサーバー本体（Dockerコンテナ）
+   - MCPプロトコル（stdio）とHTTP APIの両方を提供
+   - 複数のMCPサーバーを統合
+
+3. **mcp-gateway-client** (http://localhost:3002)
+   - Web UI（Dockerコンテナ）
+   - MCPサーバーの登録・管理画面
+
 ## 🐳 他のDockerコンテナ内のClaude Codeから使用
 
 ### 前提条件
-先に`npm run gateway`でMCP Gatewayを起動しておく必要があります。
+MCP Gatewayの3つのコンポーネントがすべて起動している必要があります：
+```bash
+npm run gateway  # プロキシサーバー + 2つのDockerコンテナを起動
+```
 
-### 方法1: Dockerソケットをマウント
+### 完全なdocker-compose.yml設定例
+
 ```yaml
-# docker-compose.yml
+version: '3.8'
+
 services:
+  # あなたのClaude Codeコンテナ
   claude-dev:
     image: your-claude-code-image
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./your-project:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock  # docker execに必要
     networks:
-      - mcp-gateway_default
+      - mcp-gateway_default  # MCP Gatewayと同じネットワーク
+
+networks:
+  mcp-gateway_default:
+    external: true  # MCP Gatewayが作成したネットワークを使用
 ```
 
+### Claude Codeコンテナからの接続
+
 ```bash
-# コンテナ内で実行
+# claude-devコンテナ内で実行
 claude mcp add gateway \
   docker exec -i mcp-gateway-server node dist/index.js
 ```
 
-### 方法2: ブリッジスクリプト経由
-コンテナ内に以下のスクリプトを配置：
+これにより、Claude Code内で`gateway.list_servers`や`filesystem.read_file`などのツールが使用可能になります。
 
-```javascript
-// /app/mcp-gateway-bridge.js
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+### MCP Gatewayの管理
 
-const server = new Server(
-  { name: 'mcp-gateway', version: '1.0.0' },
-  { capabilities: { tools: {} } }
-);
+MCP Gatewayで使用するMCPサーバーの登録・管理は以下の方法で行います：
 
-server.setRequestHandler('tools/list', async () => {
-  const res = await fetch('http://mcp-gateway-server:3003/api/tools');
-  const data = await res.json();
-  return { tools: data.tools };
-});
-
-server.setRequestHandler('tools/call', async (request) => {
-  const res = await fetch('http://mcp-gateway-server:3003/api/tools/call', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request.params)
-  });
-  return await res.json();
-});
-
-const transport = new StdioServerTransport();
-await server.connect(transport);
-```
-
-```bash
-# コンテナ内で実行
-claude mcp add gateway node /app/mcp-gateway-bridge.js
-```
+1. **Web UI**: http://localhost:3002 にアクセス（mcp-gateway-clientが提供）
+2. **mcp-config.json**: 直接編集して設定
+3. **REST API**: `POST /api/servers`で動的に追加
 
 ## 📡 API エンドポイント
 
