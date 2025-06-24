@@ -28,15 +28,24 @@ npm run logs
 
 ## 🤖 Claude Desktopでの使用
 
+### 1. mcp-serverに実行権限を付与
+```bash
+chmod +x /path/to/mcp-gateway/mcp-server
+```
+
+### 2. Claude Desktop設定に追加
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
     "mcp-gateway": {
-      "command": "/path/to/mcp-gateway/mcp-server"
+      "command": "/absolute/path/to/mcp-gateway/mcp-server"
     }
   }
 }
 ```
+
+※ 絶対パスで指定してください
 
 ## 🐳 他のDockerコンテナから使用
 
