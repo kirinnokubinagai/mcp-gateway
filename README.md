@@ -23,15 +23,7 @@
 
 ## 🐳 他のDockerコンテナ内のClaude Codeから使用
 
-Dockerコンテナ内でClaude Codeを実行している場合、MCP Gatewayに直接接続できます：
-
-```bash
-# コンテナ内で実行
-claude mcp add gateway \
-  docker exec -i mcp-gateway-server node dist/index.js
-```
-
-または、docker-compose.ymlで環境を設定：
+Dockerコンテナ内でClaude Codeを実行している場合：
 
 ```yaml
 # あなたのdocker-compose.yml
@@ -39,13 +31,19 @@ services:
   claude-dev:
     image: your-claude-code-image
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./mcp-gateway:/mcp-gateway  # MCP Gatewayプロジェクトをマウント
     networks:
       - mcp-gateway_default
+    working_dir: /mcp-gateway
 
 networks:
   mcp-gateway_default:
     external: true
+```
+
+```bash
+# コンテナ内で実行
+claude mcp add gateway npm run mcp
 ```
 
 ## 📡 API エンドポイント
