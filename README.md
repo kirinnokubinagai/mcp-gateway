@@ -21,13 +21,17 @@
 }
 ```
 
-## 🐳 他のDockerコンテナから使用
+## 🐳 他のDockerコンテナ内のClaude Codeから使用
+
+Dockerコンテナ内でClaude Codeを実行している場合、MCP Gatewayに接続する方法：
+
+### 1. docker-compose.ymlの設定
 
 ```yaml
 # あなたのdocker-compose.yml
 services:
-  your-app:
-    image: your-app
+  claude-dev:
+    image: your-claude-code-image
     environment:
       - MCP_GATEWAY_URL=http://mcp-gateway-server:3003
     networks:
@@ -38,9 +42,25 @@ networks:
     external: true
 ```
 
+### 2. Claude CodeにMCPサーバーを追加
+
+```bash
+# コンテナ内で実行
+claude mcp add gateway \
+  --transport http \
+  http://mcp-gateway-server:3003/api/mcp
+
+# または環境変数を使用
+claude mcp add gateway \
+  --transport http \
+  ${MCP_GATEWAY_URL}/api/mcp
+```
+
+### 3. APIを直接使用する場合
+
 ```javascript
 // あなたのアプリケーションコード
-const response = await fetch(process.env.MCP_GATEWAY_URL + '/api/tools/call', {
+const response = await fetch('http://mcp-gateway-server:3003/api/tools/call', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
