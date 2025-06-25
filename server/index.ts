@@ -264,7 +264,7 @@ app.get('/api/tools', async (c) => {
     if (client.status === 'connected' && client.tools) {
       for (const tool of client.tools) {
         tools.push({
-          name: `${serverName}.${tool.name}`,
+          name: `${serverName}_${tool.name}`,
           description: `[${serverName}] ${tool.description}`,
           inputSchema: tool.inputSchema
         });
@@ -273,7 +273,7 @@ app.get('/api/tools', async (c) => {
   }
   
   tools.push({
-    name: "gateway.list_servers",
+    name: "gateway_list_servers",
     description: "接続されたMCPサーバーの一覧を表示",
     inputSchema: { type: "object", properties: {} }
   });
@@ -286,7 +286,7 @@ app.post('/api/tools/call', async (c) => {
   try {
     const { name, arguments: args } = await c.req.json();
     
-    if (name === "gateway.list_servers") {
+    if (name === "gateway_list_servers") {
       const config = await loadConfig();
       const status: Record<string, any> = {};
       
@@ -307,9 +307,10 @@ app.post('/api/tools/call', async (c) => {
       });
     }
     
-    // サーバー.ツール形式を解析
-    const [serverName, ...toolNameParts] = name.split('.');
-    const originalToolName = toolNameParts.join('.');
+    // サーバー_ツール形式を解析
+    const separatorIndex = name.indexOf('_');
+    const serverName = name.substring(0, separatorIndex);
+    const originalToolName = name.substring(separatorIndex + 1);
     
     const client = mcpClients.get(serverName);
     if (!client || client.status !== 'connected' || !client.client) {
@@ -351,7 +352,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
     if (client.status === 'connected' && client.tools) {
       for (const tool of client.tools) {
         tools.push({
-          name: `${serverName}.${tool.name}`,
+          name: `${serverName}_${tool.name}`,
           description: `[${serverName}] ${tool.description}`,
           inputSchema: tool.inputSchema
         });
@@ -360,7 +361,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
   }
   
   tools.push({
-    name: "gateway.list_servers",
+    name: "gateway_list_servers",
     description: "接続されたMCPサーバーの一覧を表示",
     inputSchema: { type: "object", properties: {} }
   });
