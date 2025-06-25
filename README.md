@@ -84,7 +84,10 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 
 Claude CodeのDockerコンテナ内で、MCP Gatewayを追加するには：
 
-#### 方法1: HTTP Transport（MCP Gatewayの場合）
+#### 方法1: HTTP Transport（推奨）
+
+MCP GatewayはHTTP APIサーバーなので、この方法が推奨です：
+
 ```bash
 # HTTPトランスポートでMCP Gatewayを追加
 claude mcp add --transport http gateway http://mcp-gateway-server:3003
@@ -93,9 +96,22 @@ claude mcp add --transport http gateway http://mcp-gateway-server:3003
 claude mcp add --transport http gateway http://mcp-gateway-server:3003 --header "Authorization: Bearer your-token"
 ```
 
-#### 方法2: Stdio Transport（直接実行）
+#### 方法2: 既存コンテナへの接続（docker compose up済みの場合）
+
+既にコンテナが起動している場合：
+
 ```bash
-# Dockerコンテナを直接実行する場合
+# 既存コンテナにexecで接続（stdio）
+claude mcp add gateway docker exec -i mcp-gateway-server node dist-server/index.js
+
+# または既存コンテナのHTTP APIに接続（推奨）
+claude mcp add --transport http gateway http://mcp-gateway-server:3003
+```
+
+#### 方法3: 新規コンテナの起動（単体実行）
+
+```bash
+# 新しいDockerコンテナを起動する場合
 claude mcp add gateway docker run -i --rm --init mcp-gateway-server
 
 # 環境変数付き
