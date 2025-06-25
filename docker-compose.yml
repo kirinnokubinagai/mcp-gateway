@@ -17,11 +17,11 @@ services:
           echo ''
           echo '👉 別のターミナルで以下のコマンドを実行してください:'
           echo ''
-          echo '   npm run proxy'
+          echo '   bun run proxy'
           echo ''
           echo 'または統合起動コマンドを使用してください:'
           echo ''
-          echo '   npm start'
+          echo '   bun start'
           echo ''
           echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
           exit 1

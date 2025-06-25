@@ -6,8 +6,8 @@
 
 ### 必須要件
 - **Bun**: v1.0以上（必須）
-- **Docker**: v20以上
-- **Docker Compose**: v2以上
+- **Docker**: v20以上（Web UI使用時）
+- **Docker Compose**: v2以上（Web UI使用時）
 - **注意**: このプロジェクトはBun専用です。Node.js/npmでは動作しません。
 
 ### 推奨環境
@@ -29,36 +29,31 @@ bun --version
 
 - **複数のMCPサーバーを統合**: `obsidian`、`context7`、`github`など複数のMCPサーバーを1つのインターフェースに
 - **Docker間通信**: 他のDockerコンテナからMCPツールを実行
-- **MCP管理用Web UI**: ブラウザから簡単にMCPサーバーを管理
+- **Web UI**: ブラウザから簡単にMCPサーバーを管理
 - **リアルタイム更新**: WebSocket経由でステータスをリアルタイム更新
 - **ツール名の自動変換**: `serverName_toolName`形式で各サーバーのツールを識別
 
 ## 🚀 クイックスタート
 
 ```bash
-# 起動（プロキシサーバーとDockerコンテナを同時起動）
+# 依存関係のインストール
+bun install
+
+# Claude Desktop用（プロキシサーバーとGatewayを起動）
+bun run mcp
+
+# Web UI付きで起動（Docker使用）
 bun start
 
-# 停止
-bun stop
-
-# ログ確認
-bun run logs
+# 開発モード
+bun run dev
 ```
 
-### ⚠️ 重要な注意事項
+### 📌 動作ポート
 
-`docker compose up`を直接実行すると、プロキシサーバーが起動していない場合にエラーメッセージが表示されます。必ず`bun start`を使用してください。
-
-### アクセスURL
-
-- **MCP管理用Web UI**: http://localhost:3002
-  - MCP サーバーの状態確認
-  - 有効/無効の切り替え
-  - 接続テスト
-- **API**: http://localhost:3003
-- **WebSocket**: ws://localhost:3004
-- **プロキシ**: ws://localhost:9999
+- **プロキシサーバー**: ws://localhost:9999
+- **APIサーバー**: http://localhost:3003
+- **Web UI**: http://localhost:3002 （`bun start`時のみ）
 
 ## 🤖 Claude Desktopでの使用
 
@@ -72,18 +67,20 @@ bun install
 
 Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/claude_desktop_config.json`）に以下を追加：
 
-#### MCP管理用Web UI付きで起動
+#### 基本設定（推奨）
 ```json
 {
   "mcpServers": {
     "gateway": {
-      "command": "/path/to/mcp-gateway/mcp-gateway-direct"
+      "command": "bun",
+      "args": ["run", "mcp"],
+      "cwd": "/path/to/mcp-gateway"
     }
   }
 }
 ```
 
-#### MCP管理用Web UIなしで起動（軽量版）
+#### Web UIなしで起動（リソース節約）
 ```json
 {
   "mcpServers": {
@@ -98,8 +95,8 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 
 **重要**: 
 - Gateway MCPを使用する場合、個別のMCPサーバー（obsidian、context7など）の設定は削除してください
-- MCP管理用Web UI付きの場合、自動的にDocker Composeも起動されます
-- MCP管理用Web UIは http://localhost:3002 でアクセス可能
+- `bun run mcp`はシンプルな起動コマンドで、Web UIは含まれません
+- Web UIが必要な場合は`bun start`を使用してください
 
 ## 🤖 Claude Code（Docker版）でのMCP追加方法
 
@@ -202,8 +199,11 @@ cp -r /path/to/mcp-gateway ./mcp-gateway
 #### Step 2: プロキシサーバーを起動
 
 ```bash
-# 別ターミナルで実行（重要！）
+# MCP Gatewayの依存関係をインストール
 cd mcp-gateway
+bun install
+
+# 別ターミナルでプロキシを起動（重要！）
 bun run proxy
 ```
 
@@ -245,8 +245,8 @@ services:
     volumes:
       - ./mcp-gateway/mcp-config.json:/app/mcp-config.json
     environment:
-      - NODE_ENV=production
-      - MCP_PROXY_URL=ws://host.docker.internal:9999
+      - MCP_PROXY_PORT=9999
+      - DOCKER_ENV=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -255,14 +255,14 @@ services:
     networks:
       - app-network
 
-  # 3. MCP管理用Web UI（オプション）
+  # 3. Web UI（オプション）
   mcp-gateway-client:
     build:
       context: ./mcp-gateway
       dockerfile: Dockerfile.client
     container_name: mcp-gateway-client
     ports:
-      - "3002:3002"    # MCP管理用Web UIポート
+      - "3002:3002"    # Web UIポート
     environment:
       - API_URL=http://mcp-gateway-server:3003
     depends_on:
@@ -301,7 +301,7 @@ cd ..
 docker compose up
 
 # 3. 動作確認
-# MCP管理用Web UI: http://localhost:3002
+# Web UI: http://localhost:3002
 # API: http://localhost:3003/api/status
 ```
 
@@ -416,7 +416,7 @@ services:
       mcp-proxy-check:
         condition: service_completed_successfully
 
-  # MCP管理用Web UIは省略可能
+  # Web UIは省略可能
 ```
 
 ### 🔧 mcp-config.jsonの設定
@@ -467,26 +467,34 @@ services:
 }
 ```
 
-## 🛠️ 開発
+## 🎯 注意事項
 
-### ビルド
+### Bun専用プロジェクト
+このプロジェクトはBunランタイムに特化して最適化されています。Node.js/npmでは動作しません。
+
+### 環境変数
+以下の環境変数を`.env`ファイルで設定できます：
 
 ```bash
-# クライアントのビルド（Web UI）
-bun run build
-
-# Dockerイメージのビルド
-docker compose build
+# ポート設定
+MCP_PROXY_PORT=9999
+MCP_API_PORT=3003
+MCP_WEB_PORT=3002
 ```
 
-### 開発モード
+## 🔧 開発
+
+### スクリプト
 
 ```bash
-# ローカル開発（Dockerなし）
+# 開発モード（ファイル監視付き）
 bun run dev
 
-# Docker開発モード
-bun start
+# ビルド（Web UI）
+bun run build
+
+# クリーンアップ
+bun run clean
 ```
 
 ## 📚 アーキテクチャ
