@@ -7,12 +7,10 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Hono } from 'hono';
-import { serve } from '@hono/node-server';
-import { cors } from 'hono/cors';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { saveStatus, loadStatus, saveTools, loadTools } from './status-manager.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,9 +20,6 @@ interface ServerConfig {
   args?: string[];
   env?: Record<string, string>;
   enabled: boolean;
-  type?: 'stdio' | 'docker' | 'tcp';  // 接続タイプ
-  host?: string;  // TCP接続用
-  port?: number;  // TCP接続用
 }
 
 interface Config {
@@ -36,18 +31,12 @@ interface MCPClientInfo {
   transport?: StdioClientTransport | WebSocketTransport;
   config: ServerConfig;
   tools?: any[];
-  status: 'connected' | 'error' | 'disabled';
+  toolMapping?: Map<string, string>; // ゲートウェイツール名 -> 元のツール名
+  status: 'connected' | 'error' | 'disabled' | 'updating';
   error?: string;
 }
 
-// Hono API サーバー
-const app = new Hono();
-app.use('*', cors());
-
-const API_PORT = 3003;
 const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
-
-// MCPクライアント管理
 const mcpClients = new Map<string, MCPClientInfo>();
 
 // 設定の読み込み
@@ -60,11 +49,6 @@ async function loadConfig(): Promise<Config> {
     await fs.writeFile(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
     return defaultConfig;
   }
-}
-
-// 設定の保存
-async function saveConfig(config: Config): Promise<void> {
-  await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
 // 環境変数を展開
@@ -85,10 +69,39 @@ function expandEnvVariables<T>(obj: T): T {
   return obj;
 }
 
+// ステータスとツールの更新
+async function updateServerStatus() {
+  const status: Record<string, any> = {};
+  const allTools: Record<string, any[]> = {};
+  
+  for (const [serverName, client] of mcpClients.entries()) {
+    status[serverName] = {
+      enabled: client.config.enabled,
+      status: client.status,
+      toolCount: client.tools?.length || 0,
+      error: client.error
+    };
+    
+    if (client.tools) {
+      allTools[serverName] = client.tools;
+    }
+  }
+  
+  await saveStatus(status);
+  await saveTools(allTools);
+}
+
 // MCPクライアントの作成と接続
 async function connectToMCPServer(name: string, config: ServerConfig) {
   try {
     console.error(`MCPサーバーに接続中: ${name}`);
+    
+    // 更新中ステータスを設定
+    mcpClients.set(name, {
+      config,
+      status: 'updating'
+    });
+    await updateServerStatus();
     
     const expandedConfig = {
       command: expandEnvVariables(config.command),
@@ -126,52 +139,56 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     );
     
     // 接続を確立
-    console.error(`${name}: connect()を呼び出し中...`);
     await client.connect(transport);
-    console.error(`${name}: connect()完了`);
+    console.error(`${name}: 接続完了`);
     
-    // 接続が安定するまで少し待つ（obsidianは初期化に時間がかかる）
-    console.error(`${name}: 2秒待機中...`);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    console.error(`${name}: 待機完了`);
+    // 少し待機（安定性のため）
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
+    // ツールリストを取得
     let tools: any[] = [];
-    let toolsError: string | undefined;
+    const toolMapping = new Map<string, string>();
+    
     try {
       console.error(`${name}のツールリストを取得中...`);
-      // 30秒のタイムアウトでlistToolsを試行
-      const listToolsPromise = client.listTools();
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('listTools timeout after 30s')), 30000)
-      );
-      const response = await Promise.race([listToolsPromise, timeoutPromise]);
+      // タイムアウトを短くして再試行
+      const response = await Promise.race([
+        client.listTools(),
+        new Promise<any>((_, reject) => 
+          setTimeout(() => reject(new Error('ツールリスト取得タイムアウト')), 30000)
+        )
+      ]);
       tools = response.tools || [];
       console.error(`${name}のツール取得成功: ${tools.length}個`);
       
-      // 取得したツールの詳細をログ出力
-      if (tools.length > 0) {
-        console.error(`\n${name}で利用可能なツール:`);
-        tools.forEach((tool, index) => {
-          console.error(`  ${index + 1}. "${tool.name}"`);
-          console.error(`     説明: ${tool.description}`);
-        });
-      }
+      // ツールマッピングを作成
+      tools.forEach(tool => {
+        // ゲートウェイでのツール名（プレフィックスを確実に付ける）
+        const gatewayToolName = tool.name.startsWith(`${name}_`) 
+          ? tool.name 
+          : `${name}_${tool.name}`;
+        
+        // マッピングを保存（ゲートウェイ名 -> 元のツール名）
+        toolMapping.set(gatewayToolName, tool.name);
+        console.error(`  ツール: ${tool.name} -> ${gatewayToolName}`);
+      });
     } catch (error) {
-      toolsError = (error as Error).message;
-      console.warn(`ツールリスト取得エラー ${name}:`, toolsError);
-      console.error(`${name}: ツールリストは取得できませんでしたが、接続は維持します`);
+      console.error(`ツールリスト取得エラー ${name}:`, error);
     }
     
-    // listToolsが失敗してもサーバーは接続済みとして扱う
+    // クライアント情報を保存
     mcpClients.set(name, {
       client,
       transport,
       config,
       tools,
+      toolMapping,
       status: 'connected'
     });
     
-    console.error(`接続完了: ${name}, ツール数: ${tools.length}`);
+    // ステータスを更新
+    await updateServerStatus();
+    
     return { success: true, tools };
   } catch (error) {
     console.error(`接続失敗 ${name}:`, error);
@@ -180,266 +197,19 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       status: 'error',
       error: (error as Error).message
     });
+    
+    // ステータスを更新
+    await updateServerStatus();
+    
     return { success: false, error: (error as Error).message };
   }
 }
-
-// Web API エンドポイント
-
-// 設定の取得
-app.get('/api/config', async (c) => {
-  const config = await loadConfig();
-  const status: Record<string, any> = {};
-  
-  for (const [name, client] of mcpClients.entries()) {
-    status[name] = {
-      status: client.status,
-      toolCount: client.tools?.length || 0,
-      error: client.error
-    };
-  }
-  
-  return c.json({ config, status });
-});
-
-// MCPサーバーの追加/更新
-app.post('/api/servers/:name', async (c) => {
-  try {
-    const name = c.req.param('name');
-    const serverConfig = await c.req.json<ServerConfig>();
-    
-    const config = await loadConfig();
-    config.servers[name] = serverConfig;
-    await saveConfig(config);
-    
-    // 既存の接続があれば切断
-    const existing = mcpClients.get(name);
-    if (existing?.transport) {
-      await existing.transport.close();
-    }
-    
-    // 有効なら接続
-    if (serverConfig.enabled) {
-      // 初期状態を設定
-      mcpClients.set(name, {
-        config: serverConfig,
-        status: 'connecting' as any,
-      });
-      
-      // 接続を非同期で実行
-      connectToMCPServer(name, serverConfig).catch(error => {
-        console.error(`バックグラウンド接続エラー ${name}:`, error);
-        // エラー時はステータスを更新
-        mcpClients.set(name, {
-          config: serverConfig,
-          status: 'error',
-          error: (error as Error).message
-        });
-      });
-    }
-    
-    return c.json({ success: true });
-  } catch (error) {
-    return c.json({ error: (error as Error).message }, 500);
-  }
-});
-
-// MCPサーバーの削除
-app.delete('/api/servers/:name', async (c) => {
-  try {
-    const name = c.req.param('name');
-    
-    const config = await loadConfig();
-    delete config.servers[name];
-    await saveConfig(config);
-    
-    const client = mcpClients.get(name);
-    if (client?.transport) {
-      await client.transport.close();
-    }
-    mcpClients.delete(name);
-    
-    return c.json({ success: true });
-  } catch (error) {
-    return c.json({ error: (error as Error).message }, 500);
-  }
-});
-
-// ツールリストの取得（REST API）
-app.get('/api/tools', async (c) => {
-  console.error(`\n=== [REST API] ツールリストのリクエスト受信 ===`);
-  const tools: any[] = [];
-  
-  for (const [serverName, client] of mcpClients.entries()) {
-    console.error(`\nサーバー: ${serverName}`);
-    console.error(`  ステータス: ${client.status}`);
-    console.error(`  ツール数: ${client.tools?.length || 0}`);
-    
-    if (client.status === 'connected' && client.tools) {
-      for (const tool of client.tools) {
-        // ツール名の重複プレフィックスを避ける
-        const toolName = tool.name.startsWith(`${serverName}_`) 
-          ? tool.name 
-          : `${serverName}_${tool.name}`;
-        console.error(`  ツール登録: "${tool.name}" -> "${toolName}"`);
-        
-        // プレフィックス重複の検出
-        if (tool.name.startsWith(`${serverName}_`)) {
-          console.error(`    (注意: プレフィックス重複検出 - 元のツール名を保持)`);
-        }
-        
-        tools.push({
-          name: toolName,
-          description: `[${serverName}] ${tool.description}`,
-          inputSchema: tool.inputSchema
-        });
-      }
-    }
-  }
-  
-  tools.push({
-    name: "gateway_list_servers",
-    description: "接続されたMCPサーバーの一覧を表示",
-    inputSchema: { type: "object", properties: {} }
-  });
-  console.error(`\nゲートウェイツール: "gateway_list_servers"`);
-  
-  console.error(`\n[REST API] 合計ツール数: ${tools.length}`);
-  console.error(`=== [REST API] ツールリスト送信完了 ===\n`);
-  
-  return c.json({ tools });
-});
-
-// ツールの実行（REST API）
-app.post('/api/tools/call', async (c) => {
-  let name: string = '';
-  try {
-    const body = await c.req.json();
-    name = body.name;
-    const args = body.arguments;
-    
-    // 1. 受信したツール名をログ出力
-    console.error(`\n=== [REST API] ツール実行開始 ===`);
-    console.error(`受信したツール名: "${name}"`);
-    console.error(`引数: ${JSON.stringify(args, null, 2)}`);
-    
-    if (name === "gateway_list_servers") {
-      console.error(`ゲートウェイ内部ツール: gateway_list_servers`);
-      const config = await loadConfig();
-      const status: Record<string, any> = {};
-      
-      for (const [serverName, client] of mcpClients.entries()) {
-        status[serverName] = {
-          enabled: config.servers[serverName]?.enabled || false,
-          status: client.status,
-          toolCount: client.tools?.length || 0,
-          error: client.error
-        };
-      }
-      
-      return c.json({
-        content: [{
-          type: "text",
-          text: JSON.stringify(status, null, 2)
-        }]
-      });
-    }
-    
-    // 2. ツール名のパース処理の各ステップでログ出力
-    console.error(`\n--- [REST API] ツール名パース開始 ---`);
-    
-    // サーバー_ツール形式を解析
-    let serverName: string;
-    let originalToolName: string;
-    
-    // 最初の_で分割してサーバー名を取得
-    const separatorIndex = name.indexOf('_');
-    console.error(`最初の'_'の位置: ${separatorIndex}`);
-    
-    if (separatorIndex === -1) {
-      console.error(`エラー: '_'が見つかりません。不正なツール名形式です。`);
-      throw new Error(`不正なツール名形式: ${name}`);
-    }
-    
-    const potentialServerName = name.substring(0, separatorIndex);
-    const remainingName = name.substring(separatorIndex + 1);
-    console.error(`潜在的なサーバー名: "${potentialServerName}"`);
-    console.error(`残りの名前: "${remainingName}"`);
-    
-    // 利用可能なMCPサーバーをログ出力
-    console.error(`\n利用可能なMCPサーバー: ${Array.from(mcpClients.keys()).join(', ')}`);
-    
-    // サーバーが存在し、かつツール名がサーバー名で始まっている場合は、
-    // プレフィックス重複として扱う
-    if (mcpClients.has(potentialServerName) && remainingName.startsWith(potentialServerName + '_')) {
-      console.error(`プレフィックス重複を検出: ${potentialServerName}_${potentialServerName}_...`);
-      serverName = potentialServerName;
-      originalToolName = name; // 元の名前全体をツール名として使用
-      console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}" (重複プレフィックス対応)`);
-    } else {
-      serverName = potentialServerName;
-      // 常に元の名前全体を送信する（サーバー側が期待する形式で）
-      originalToolName = name;
-      console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}"`);
-    }
-    
-    const client = mcpClients.get(serverName);
-    if (!client) {
-      console.error(`エラー: サーバー "${serverName}" が見つかりません`);
-      throw new Error(`サーバー ${serverName} は接続されていません`);
-    }
-    
-    if (client.status !== 'connected') {
-      console.error(`エラー: サーバー "${serverName}" のステータス: ${client.status}`);
-      throw new Error(`サーバー ${serverName} は接続されていません (status: ${client.status})`);
-    }
-    
-    if (!client.client) {
-      console.error(`エラー: サーバー "${serverName}" のクライアントが null です`);
-      throw new Error(`サーバー ${serverName} のクライアントが初期化されていません`);
-    }
-    
-    // 3. 実際にMCPサーバーに送信するツール名をログ出力
-    console.error(`\n--- [REST API] MCPサーバーへのツール実行 ---`);
-    console.error(`対象サーバー: "${serverName}"`);
-    console.error(`送信するツール名: "${originalToolName}"`);
-    console.error(`送信する引数: ${JSON.stringify(args, null, 2)}`);
-    
-    const result = await client.client.callTool({
-      name: originalToolName,
-      arguments: args
-    });
-    
-    console.error(`[REST API] ツール実行成功: ${name}`);
-    console.error(`結果の型: ${typeof result}`);
-    if (result && typeof result === 'object' && 'content' in result) {
-      console.error(`結果のcontent数: ${(result as any).content?.length || 0}`);
-    }
-    console.error(`=== [REST API] ツール実行完了 ===\n`);
-    
-    return c.json(result);
-  } catch (error) {
-    // 4. エラーが発生した場合の詳細なログ出力
-    console.error(`\n!!! [REST API] ツール実行エラー !!!`);
-    console.error(`ツール名: ${name}`);
-    console.error(`エラーメッセージ: ${(error as Error).message}`);
-    console.error(`エラースタック: ${(error as Error).stack}`);
-    console.error(`=== [REST API] エラー詳細終了 ===\n`);
-    
-    return c.json({
-      content: [{
-        type: "text",
-        text: `エラー: ${(error as Error).message}`
-      }]
-    }, 400);
-  }
-});
 
 // MCPゲートウェイサーバー
 const mcpServer = new Server(
   {
     name: "mcp-gateway",
-    version: "2.0.0",
+    version: "3.0.0",
   },
   {
     capabilities: {
@@ -448,30 +218,21 @@ const mcpServer = new Server(
   }
 );
 
+// ツールリストの取得
 mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
   console.error(`\n=== ツールリストのリクエスト受信 ===`);
   const tools: any[] = [];
   
   for (const [serverName, client] of mcpClients.entries()) {
-    console.error(`\nサーバー: ${serverName}`);
-    console.error(`  ステータス: ${client.status}`);
-    console.error(`  ツール数: ${client.tools?.length || 0}`);
-    
     if (client.status === 'connected' && client.tools) {
       for (const tool of client.tools) {
-        // ツール名の重複プレフィックスを避ける
-        const toolName = tool.name.startsWith(`${serverName}_`) 
+        // ゲートウェイでのツール名
+        const gatewayToolName = tool.name.startsWith(`${serverName}_`) 
           ? tool.name 
           : `${serverName}_${tool.name}`;
-        console.error(`  ツール登録: "${tool.name}" -> "${toolName}"`);
-        
-        // プレフィックス重複の検出
-        if (tool.name.startsWith(`${serverName}_`)) {
-          console.error(`    (注意: プレフィックス重複検出 - 元のツール名を保持)`);
-        }
         
         tools.push({
-          name: toolName,
+          name: gatewayToolName,
           description: `[${serverName}] ${tool.description}`,
           inputSchema: tool.inputSchema
         });
@@ -479,29 +240,25 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
     }
   }
   
+  // ゲートウェイ内部ツール
   tools.push({
     name: "gateway_list_servers",
     description: "接続されたMCPサーバーの一覧を表示",
     inputSchema: { type: "object", properties: {} }
   });
-  console.error(`\nゲートウェイツール: "gateway_list_servers"`);
   
-  console.error(`\n合計ツール数: ${tools.length}`);
-  console.error(`=== ツールリスト送信完了 ===\n`);
-  
+  console.error(`合計ツール数: ${tools.length}`);
   return { tools };
 });
 
+// ツールの実行
 mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   
-  // 1. 受信したツール名をログ出力
-  console.error(`\n=== ツール実行開始 ===`);
-  console.error(`受信したツール名: "${name}"`);
-  console.error(`引数: ${JSON.stringify(args, null, 2)}`);
+  console.error(`\n=== ツール実行: ${name} ===`);
   
+  // ゲートウェイ内部ツール
   if (name === "gateway_list_servers") {
-    console.error(`ゲートウェイ内部ツール: gateway_list_servers`);
     const config = await loadConfig();
     const status: Record<string, any> = {};
     
@@ -522,117 +279,167 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
   
-  // 2. ツール名のパース処理の各ステップでログ出力
-  console.error(`\n--- ツール名パース開始 ---`);
-  
-  // サーバー_ツール形式を解析
-  let serverName: string;
-  let originalToolName: string;
-  
-  // 最初の_で分割してサーバー名を取得
+  // サーバー名を取得（最初の_で分割）
   const separatorIndex = name.indexOf('_');
-  console.error(`最初の'_'の位置: ${separatorIndex}`);
-  
   if (separatorIndex === -1) {
-    console.error(`エラー: '_'が見つかりません。不正なツール名形式です。`);
     throw new Error(`不正なツール名形式: ${name}`);
   }
   
-  const potentialServerName = name.substring(0, separatorIndex);
-  const remainingName = name.substring(separatorIndex + 1);
-  console.error(`潜在的なサーバー名: "${potentialServerName}"`);
-  console.error(`残りの名前: "${remainingName}"`);
-  
-  // 利用可能なMCPサーバーをログ出力
-  console.error(`\n利用可能なMCPサーバー: ${Array.from(mcpClients.keys()).join(', ')}`);
-  
-  // サーバーが存在し、かつツール名がサーバー名で始まっている場合は、
-  // プレフィックス重複として扱う
-  if (mcpClients.has(potentialServerName) && remainingName.startsWith(potentialServerName + '_')) {
-    console.error(`プレフィックス重複を検出: ${potentialServerName}_${potentialServerName}_...`);
-    serverName = potentialServerName;
-    originalToolName = name; // 元の名前全体をツール名として使用
-    console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}" (重複プレフィックス対応)`);
-  } else {
-    serverName = potentialServerName;
-    // 常に元の名前全体を送信する（サーバー側が期待する形式で）
-    originalToolName = name;
-    console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}"`);
-  }
-  
+  const serverName = name.substring(0, separatorIndex);
   const client = mcpClients.get(serverName);
-  if (!client) {
-    console.error(`エラー: サーバー "${serverName}" が見つかりません`);
+  
+  if (!client || client.status !== 'connected' || !client.client) {
     throw new Error(`サーバー ${serverName} は接続されていません`);
   }
   
-  if (client.status !== 'connected') {
-    console.error(`エラー: サーバー "${serverName}" のステータス: ${client.status}`);
-    throw new Error(`サーバー ${serverName} は接続されていません (status: ${client.status})`);
-  }
-  
-  if (!client.client) {
-    console.error(`エラー: サーバー "${serverName}" のクライアントが null です`);
-    throw new Error(`サーバー ${serverName} のクライアントが初期化されていません`);
+  // 元のツール名を取得
+  let originalToolName: string;
+  if (client.toolMapping && client.toolMapping.has(name)) {
+    originalToolName = client.toolMapping.get(name)!;
+    console.error(`マッピングから取得: ${name} -> ${originalToolName}`);
+  } else {
+    // マッピングがない場合は、プレフィックスを除去
+    const serverPrefix = `${serverName}_`;
+    if (name.startsWith(serverPrefix)) {
+      originalToolName = name.substring(serverPrefix.length);
+      console.error(`プレフィックスを除去: ${name} -> ${originalToolName}`);
+    } else {
+      originalToolName = name;
+      console.error(`プレフィックスなし: ${name} をそのまま使用`);
+    }
   }
   
   try {
-    // 3. 実際にMCPサーバーに送信するツール名をログ出力
-    console.error(`\n--- MCPサーバーへのツール実行 ---`);
-    console.error(`対象サーバー: "${serverName}"`);
-    console.error(`送信するツール名: "${originalToolName}"`);
-    console.error(`送信する引数: ${JSON.stringify(args, null, 2)}`);
-    
+    console.error(`${serverName}に送信: ${originalToolName}`);
     const result = await client.client.callTool({
       name: originalToolName,
       arguments: args
     });
     
-    console.error(`ツール実行成功: ${name}`);
-    console.error(`結果の型: ${typeof result}`);
-    if (result && typeof result === 'object' && 'content' in result) {
-      console.error(`結果のcontent数: ${(result as any).content?.length || 0}`);
-    }
-    console.error(`=== ツール実行完了 ===\n`);
-    
     return result;
   } catch (error) {
-    // 4. エラーが発生した場合の詳細なログ出力
-    console.error(`\n!!! ツール実行エラー !!!`);
-    console.error(`ツール名: ${name}`);
-    console.error(`サーバー: ${serverName}`);
-    console.error(`実際のツール名: ${originalToolName}`);
-    console.error(`エラーメッセージ: ${(error as Error).message}`);
-    console.error(`エラースタック: ${(error as Error).stack}`);
-    console.error(`=== エラー詳細終了 ===\n`);
-    
+    console.error(`ツール実行エラー:`, error);
     return {
       content: [{
         type: "text",
-        text: `エラー: ${name} - ${(error as Error).message}`
+        text: `エラー: ${(error as Error).message}`
       }]
     };
   }
 });
 
-// 起動
-async function main() {
-  // 設定を読み込んで接続
+// MCPサーバーの切断
+async function disconnectFromMCPServer(name: string) {
+  const client = mcpClients.get(name);
+  if (client && client.transport) {
+    try {
+      console.error(`MCPサーバーから切断中: ${name}`);
+      await client.client?.close();
+      if ('close' in client.transport) {
+        await (client.transport as any).close();
+      }
+      mcpClients.delete(name);
+      console.error(`${name}: 切断完了`);
+    } catch (error) {
+      console.error(`切断エラー ${name}:`, error);
+    }
+  }
+}
+
+// 設定の同期
+async function syncWithConfig() {
   const config = await loadConfig();
-  for (const [name, serverConfig] of Object.entries(config.servers)) {
-    if (serverConfig.enabled) {
-      await connectToMCPServer(name, serverConfig);
+  const currentServers = new Set(mcpClients.keys());
+  const configServers = new Set(Object.keys(config.servers));
+  
+  // 削除されたサーバーを切断
+  for (const name of currentServers) {
+    if (!configServers.has(name)) {
+      await disconnectFromMCPServer(name);
     }
   }
   
-  // stdioのみで起動（HTTPサーバーは起動しない）
-  console.error("MCP Gateway Server: stdioモードで起動");
+  // 新規または更新されたサーバーに接続
+  for (const [name, serverConfig] of Object.entries(config.servers)) {
+    const currentClient = mcpClients.get(name);
+    
+    // 既存のサーバーが無効化された場合
+    if (!serverConfig.enabled && currentClient) {
+      await disconnectFromMCPServer(name);
+      continue;
+    }
+    
+    // 有効なサーバーで未接続または設定が変更された場合
+    if (serverConfig.enabled) {
+      const needsReconnect = !currentClient || 
+        JSON.stringify(currentClient.config) !== JSON.stringify(serverConfig);
+      
+      if (needsReconnect) {
+        if (currentClient) {
+          await disconnectFromMCPServer(name);
+        }
+        await connectToMCPServer(name, serverConfig);
+      }
+    }
+  }
+  
+  // ステータスを更新
+  await updateServerStatus();
+}
+
+// 定期的に設定を同期
+async function startConfigSync() {
+  // 初回の同期
+  await syncWithConfig();
+  
+  // ファイル監視を使用
+  try {
+    const { watch } = await import('fs');
+    const watcher = watch(CONFIG_FILE, async (eventType) => {
+      if (eventType === 'change') {
+        console.error("設定ファイル変更を検知");
+        // 少し待機（ファイル書き込み完了を待つ）
+        setTimeout(async () => {
+          try {
+            await syncWithConfig();
+          } catch (error) {
+            console.error("設定同期エラー:", error);
+          }
+        }, 100);
+      }
+    });
+    
+    console.error("設定ファイル監視を開始");
+  } catch (error) {
+    console.error("ファイル監視のセットアップに失敗、ポーリングにフォールバック:", error);
+    // フォールバック: 5秒ごとに設定をチェック
+    setInterval(async () => {
+      try {
+        await syncWithConfig();
+      } catch (error) {
+        console.error("設定同期エラー:", error);
+      }
+    }, 5000);
+  }
+}
+
+// 起動
+async function main() {
+  console.error("MCP Gateway Server 起動中...");
+  
+  // 先に設定の同期を開始（他のMCPサーバーに接続）
+  await startConfigSync();
+  
+  // 少し待機して接続が安定するのを待つ
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  // その後MCPサーバーを起動（stdioのみ）
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
-  console.error("MCP Gateway Server 起動完了（stdioモード）");
+  console.error("MCP Gateway Server 起動完了");
 }
 
 main().catch((error) => {
-  console.error("エラー:", error);
+  console.error("起動エラー:", error);
   process.exit(1);
 });

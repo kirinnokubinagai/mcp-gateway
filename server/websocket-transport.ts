@@ -15,6 +15,7 @@ interface WebSocketTransportOptions {
  */
 export class WebSocketTransport implements Transport {
   private ws: WebSocket | null = null;
+  private jsonBuffer: string = '';
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
@@ -58,20 +59,30 @@ export class WebSocketTransport implements Transport {
               try {
                 const msg = JSON.parse(data.toString());
                 if (msg.type === 'stdout' && msg.data) {
-                  // stdoutデータをJSON-RPCメッセージとして解析
-                  const lines = msg.data.split('\n').filter((line: string) => line.trim());
+                  // stdoutデータを処理
+                  this.jsonBuffer += msg.data;
+                  
+                  // 改行で分割して処理
+                  const lines = this.jsonBuffer.split('\n');
+                  
+                  // 最後の行は不完全な可能性があるので保持
+                  this.jsonBuffer = lines.pop() || '';
+                  
+                  // 完全な行を処理
                   for (const line of lines) {
+                    if (!line.trim()) continue;
+                    
                     try {
                       const jsonRpcMessage = JSON.parse(line);
-                      console.error('JSON-RPCメッセージ受信:', JSON.stringify(jsonRpcMessage));
+                      console.error('JSON-RPCメッセージ受信:', JSON.stringify(jsonRpcMessage).substring(0, 200));
                       if (this.onmessage) {
                         this.onmessage(jsonRpcMessage);
                       }
                     } catch (e) {
-                      // JSON以外の行は無視
-                      if (line.trim()) {
-                        console.error('非JSONメッセージ:', line);
-                      }
+                      // JSONパースエラー
+                      console.error('JSONパースエラー:', line.substring(0, 100));
+                      // 不完全なJSONの可能性があるので、バッファに戻す
+                      this.jsonBuffer = line + '\n' + this.jsonBuffer;
                     }
                   }
                 } else if (msg.type === 'stderr') {
@@ -108,6 +119,18 @@ export class WebSocketTransport implements Transport {
 
       this.ws.on('close', (code, reason) => {
         console.error(`WebSocket接続が閉じられました: code=${code}, reason=${reason}`);
+        // 残りのバッファを処理
+        if (this.jsonBuffer.trim()) {
+          try {
+            const jsonRpcMessage = JSON.parse(this.jsonBuffer);
+            if (this.onmessage) {
+              this.onmessage(jsonRpcMessage);
+            }
+          } catch (e) {
+            console.error('最終バッファのパースエラー:', this.jsonBuffer.substring(0, 100));
+          }
+        }
+        this.jsonBuffer = '';
         if (this.onclose) {
           this.onclose();
         }

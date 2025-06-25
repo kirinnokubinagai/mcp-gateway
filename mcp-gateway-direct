@@ -1,0 +1,32 @@
+#!/bin/bash
+
+cd "$(dirname "$0")"
+
+# .envファイルを読み込み
+if [ -f .env ]; then
+    export $(cat .env | grep -v '^#' | xargs)
+fi
+
+# デフォルト値
+MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
+MCP_WEB_PORT=${MCP_WEB_PORT:-3002}
+
+# MCPプロキシサーバーが起動していることを確認（出力を/dev/nullに捨てる）
+node mcp-proxy-server/dist/start-if-needed.js >/dev/null 2>&1 &
+
+# 少し待機
+sleep 1
+
+# MCP_NO_UIが設定されていない場合のみDocker Composeを起動
+if [ -z "$MCP_NO_UI" ]; then
+    # Docker Composeが起動していない場合は起動
+    if ! docker ps | grep -q mcp-gateway-server; then
+        echo "Starting Docker containers for Web UI..." >&2
+        docker-compose up -d >/dev/null 2>&1
+        echo "Web UI is available at http://localhost:$MCP_WEB_PORT" >&2
+    fi
+fi
+
+# dist-server/index.jsを直接実行
+export MCP_PROXY_URL="ws://localhost:$MCP_PROXY_PORT"
+exec node dist-server/index.js

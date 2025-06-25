@@ -23,7 +23,7 @@ export default defineConfig({
     port: 3002,
     proxy: {
       '/api': {
-        target: process.env.API_URL || 'http://localhost:3003',
+        target: process.env.API_URL || 'http://mcp-gateway-server:3003',
         changeOrigin: true
       }
     }

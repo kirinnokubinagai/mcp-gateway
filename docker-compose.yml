@@ -1,21 +1,57 @@
 version: '3.8'
 
 services:
+  # プロキシサーバーチェッカー（最初に実行）
+  proxy-check:
+    image: busybox
+    command: |
+      sh -c "
+        echo '🔍 MCPプロキシサーバーをチェック中...'
+        if nc -z host.docker.internal ${MCP_PROXY_PORT:-9999} 2>/dev/null; then
+          echo '✅ プロキシサーバーは起動しています'
+        else
+          echo ''
+          echo '⚠️ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+          echo '⚠️  MCPプロキシサーバーが起動していません！'
+          echo '⚠️ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+          echo ''
+          echo '👉 別のターミナルで以下のコマンドを実行してください:'
+          echo ''
+          echo '   npm run proxy'
+          echo ''
+          echo 'または統合起動コマンドを使用してください:'
+          echo ''
+          echo '   npm start'
+          echo ''
+          echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+          exit 1
+        fi
+      "
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mcp-network
+
   mcp-gateway-server:
     build:
       context: .
       dockerfile: Dockerfile.server
     container_name: mcp-gateway-server
     ports:
-      - "3003:3003"
+      - "${MCP_API_PORT:-3003}:3003"
     volumes:
       - ./mcp-config.json:/app/mcp-config.json
     environment:
       - NODE_ENV=production
-      - MCP_PROXY_URL=ws://host.docker.internal:9999
+      - MCP_PROXY_URL=${MCP_PROXY_URL:-ws://host.docker.internal:9999}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    depends_on:
+      proxy-check:
+        condition: service_completed_successfully
+    networks:
+      - mcp-network
 
   mcp-gateway-client:
     build:
@@ -23,10 +59,16 @@ services:
       dockerfile: Dockerfile.client
     container_name: mcp-gateway-client
     ports:
-      - "3002:3002"
+      - "${MCP_WEB_PORT:-3002}:3002"
     environment:
-      - API_URL=http://mcp-gateway-server:3003
-      - CLIENT_PORT=3002
+      - API_URL=${API_URL:-http://mcp-gateway-server:3003}
+      - CLIENT_PORT=${MCP_WEB_PORT:-3002}
     depends_on:
       - mcp-gateway-server
     restart: unless-stopped
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge

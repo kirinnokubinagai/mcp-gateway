@@ -5,25 +5,47 @@
  * ホストで動作し、WebSocket経由でDockerコンテナとMCPサーバーを橋渡しする
  */
 
-import { WebSocketServer } from 'ws';
-import { spawn } from 'child_process';
+import { WebSocketServer, WebSocket } from 'ws';
+import { spawn, ChildProcess } from 'child_process';
 import { createServer } from 'http';
 
-const PORT = process.env.PORT || 9999;
+interface InitMessage {
+  type: 'init';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+interface StdinMessage {
+  type: 'stdin';
+  data: string;
+}
+
+interface OutputMessage {
+  type: 'stdout' | 'stderr' | 'error' | 'exit' | 'ready';
+  data?: string;
+  message?: string;
+  code?: number | null;
+  signal?: NodeJS.Signals | null;
+}
+
+type IncomingMessage = InitMessage | StdinMessage;
+
+const PORT = Number(process.env.PORT) || 9999;
 const server = createServer();
 const wss = new WebSocketServer({ server });
 
 console.log('🚀 MCPプロキシサーバーを起動中...');
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws: WebSocket) => {
   console.log('✅ 新しいWebSocket接続を受信');
   
-  let mcpProcess = null;
-  let config = null;
+  let mcpProcess: ChildProcess | null = null;
+  let config: InitMessage | null = null;
 
-  ws.on('message', (data) => {
+  ws.on('message', (data: Buffer) => {
     try {
-      const message = JSON.parse(data);
+      const message = JSON.parse(data.toString()) as IncomingMessage;
       
       // 初回メッセージは設定
       if (!mcpProcess && message.type === 'init') {
@@ -37,66 +59,72 @@ wss.on('connection', (ws) => {
         });
 
         // プロセスエラーハンドリング
-        mcpProcess.on('error', (error) => {
-          console.error(`❌ プロセス起動エラー (${config.command}):`, error.message);
-          ws.send(JSON.stringify({
+        mcpProcess.on('error', (error: Error) => {
+          console.error(`❌ プロセス起動エラー (${config!.command}):`, error.message);
+          const errorMessage: OutputMessage = {
             type: 'error',
             message: `プロセス起動エラー: ${error.message}`
-          }));
+          };
+          ws.send(JSON.stringify(errorMessage));
         });
 
         // MCPサーバーからの出力をWebSocketに転送
-        mcpProcess.stdout.on('data', (data) => {
+        mcpProcess.stdout?.on('data', (data: Buffer) => {
           const output = data.toString();
-          console.log(`📤 stdout from ${config.command}:`, output);
-          ws.send(JSON.stringify({
+          console.log(`📤 stdout from ${config!.command}:`, output);
+          const outputMessage: OutputMessage = {
             type: 'stdout',
             data: output
-          }));
+          };
+          ws.send(JSON.stringify(outputMessage));
         });
 
-        mcpProcess.stderr.on('data', (data) => {
+        mcpProcess.stderr?.on('data', (data: Buffer) => {
           const errorMsg = data.toString();
-          console.error(`❌ stderr from ${config.command}:`, errorMsg);
+          console.error(`❌ stderr from ${config!.command}:`, errorMsg);
           // 環境変数関連のエラーを特別にログ
           if (errorMsg.includes('environment variable') || errorMsg.includes('OBSIDIAN')) {
             console.error('⚠️  環境変数エラー検出:', errorMsg);
           }
-          ws.send(JSON.stringify({
+          const errorMessage: OutputMessage = {
             type: 'stderr',
             data: errorMsg
-          }));
+          };
+          ws.send(JSON.stringify(errorMessage));
         });
 
-        mcpProcess.on('exit', (code, signal) => {
+        mcpProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
           console.log(`MCPプロセス終了: code=${code}, signal=${signal}`);
           if (code === 143 || signal === 'SIGTERM') {
             console.log('⚠️  プロセスが強制終了されました (SIGTERM)');
           }
-          ws.send(JSON.stringify({
+          const exitMessage: OutputMessage = {
             type: 'exit',
             code,
             signal
-          }));
+          };
+          ws.send(JSON.stringify(exitMessage));
           ws.close();
         });
 
-        ws.send(JSON.stringify({
+        const readyMessage: OutputMessage = {
           type: 'ready',
           message: 'MCPサーバーが起動しました'
-        }));
+        };
+        ws.send(JSON.stringify(readyMessage));
       }
       // 通常のメッセージはMCPサーバーに転送
       else if (mcpProcess && message.type === 'stdin') {
-        console.log(`📥 stdin to ${config.command}:`, message.data);
-        mcpProcess.stdin.write(message.data);
+        console.log(`📥 stdin to ${config!.command}:`, message.data);
+        mcpProcess.stdin?.write(message.data);
       }
     } catch (e) {
       console.error('メッセージ処理エラー:', e);
-      ws.send(JSON.stringify({
+      const errorMessage: OutputMessage = {
         type: 'error',
-        message: e.message
-      }));
+        message: (e as Error).message
+      };
+      ws.send(JSON.stringify(errorMessage));
     }
   });
 
@@ -107,7 +135,7 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('error', (error) => {
+  ws.on('error', (error: Error) => {
     console.error('WebSocketエラー:', error);
   });
 });

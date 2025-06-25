@@ -17,7 +17,7 @@ interface ServerConfig {
 }
 
 interface ServerStatus {
-  status: 'connected' | 'error' | 'disabled'
+  status: 'connected' | 'error' | 'disabled' | 'updating'
   toolCount: number
   error?: string
 }
@@ -28,6 +28,8 @@ function App() {
   const [isAddServerOpen, setIsAddServerOpen] = useState(false)
   const [editingServer, setEditingServer] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [toolsDialogOpen, setToolsDialogOpen] = useState<string | null>(null)
+  const [serverTools, setServerTools] = useState<Record<string, any[]>>({})
   const [newServer, setNewServer] = useState({
     name: '',
     command: '',
@@ -40,17 +42,54 @@ function App() {
     // 初期データ読み込み
     fetchConfig()
     
-    // 定期的に状態を更新
-    const interval = setInterval(fetchConfig, 5000)
-    return () => clearInterval(interval)
+    // WebSocket接続
+    const ws = new WebSocket('ws://localhost:3004')
+    
+    ws.onopen = () => {
+      console.log('WebSocket接続成功')
+    }
+    
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data)
+        if (message.type === 'status') {
+          setServerStatus(message.data)
+        }
+      } catch (error) {
+        console.error('WebSocketメッセージエラー:', error)
+      }
+    }
+    
+    ws.onerror = (error) => {
+      console.error('WebSocketエラー:', error)
+    }
+    
+    ws.onclose = () => {
+      console.log('WebSocket切断')
+    }
+    
+    // 定期的に設定を更新（フォールバック）
+    const interval = setInterval(fetchConfig, 30000)
+    
+    return () => {
+      clearInterval(interval)
+      ws.close()
+    }
   }, [])
 
   const fetchConfig = async () => {
     try {
-      const response = await fetch('/api/config')
-      const data = await response.json()
-      setServers(data.config.servers || {})
-      setServerStatus(data.status || {})
+      // 設定を取得
+      const configResponse = await fetch('/api/config')
+      const configData = await configResponse.json()
+      setServers(configData.servers || {})
+      
+      // ステータスを取得
+      const statusResponse = await fetch('/api/status')
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json()
+        setServerStatus(statusData)
+      }
     } catch (error) {
       console.error('設定の取得に失敗しました:', error)
     }
@@ -67,53 +106,51 @@ function App() {
           env = JSON.parse(newServer.env)
         } catch (e) {
           alert('環境変数のJSON形式が正しくありません')
+          setIsSaving(false)
           return
         }
       }
       
-      if (editingServer && editingServer !== newServer.name) {
-        // 名前が変更された場合は、古いサーバーを削除して新規作成
-        await fetch(`/api/servers/${editingServer}`, {
-          method: 'DELETE'
-        })
+      const serverConfig = {
+        command: newServer.command,
+        args,
+        env,
+        enabled: newServer.enabled
       }
       
-      const response = await fetch(`/api/servers/${newServer.name}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          command: newServer.command,
-          args,
-          env,
-          enabled: newServer.enabled
+      let response;
+      
+      if (editingServer) {
+        // 更新モード
+        response = await fetch(`/api/servers/${editingServer}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...serverConfig,
+            newName: newServer.name
+          })
         })
-      })
+      } else {
+        // 新規作成モード
+        response = await fetch(`/api/servers/${newServer.name}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(serverConfig)
+        })
+      }
       
       if (response.ok) {
         await fetchConfig()
-        // 成功時のみモーダルを閉じる
         setIsAddServerOpen(false)
         setEditingServer(null)
         setNewServer({ name: '', command: '', args: '', env: '', enabled: true })
-        // 成功メッセージ（オプション）
-        // alert(editingServer ? 'サーバーを更新しました' : 'サーバーを追加しました')
       } else {
-        const error = await response.text()
-        alert(`サーバーエラー: ${error}`)
-        // エラー時はモーダルを閉じない
+        const errorData = await response.json()
+        alert(`エラー: ${errorData.error}`)
       }
     } catch (error) {
-      console.error(editingServer ? 'サーバーの更新に失敗しました:' : 'サーバーの追加に失敗しました:', error)
-      if ((error as Error).name === 'AbortError') {
-        alert('タイムアウトしました。サーバー設定は保存されましたが、接続に失敗している可能性があります。')
-        // タイムアウトでも設定を再読み込み
-        await fetchConfig()
-        setIsAddServerOpen(false)
-        setEditingServer(null)
-        setNewServer({ name: '', command: '', args: '', env: '', enabled: true })
-      } else {
-        alert(`エラー: ${(error as Error).message}`)
-      }
+      console.error('サーバーの操作に失敗しました:', error)
+      alert(`エラー: ${(error as Error).message}`)
     } finally {
       setIsSaving(false)
     }
@@ -127,9 +164,13 @@ function App() {
       
       if (response.ok) {
         await fetchConfig()
+      } else {
+        const errorData = await response.json()
+        alert(`削除エラー: ${errorData.error}`)
       }
     } catch (error) {
       console.error('サーバーの削除に失敗しました:', error)
+      alert(`エラー: ${(error as Error).message}`)
     }
   }
 
@@ -145,6 +186,19 @@ function App() {
       })
       setEditingServer(name)
       setIsAddServerOpen(true)
+    }
+  }
+
+  const handleShowTools = async (serverName: string) => {
+    try {
+      const response = await fetch(`/api/servers/${serverName}/tools`)
+      if (response.ok) {
+        const tools = await response.json()
+        setServerTools({ ...serverTools, [serverName]: tools })
+        setToolsDialogOpen(serverName)
+      }
+    } catch (error) {
+      console.error('ツールの取得に失敗しました:', error)
     }
   }
 
@@ -170,15 +224,18 @@ function App() {
                         <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
                           !config.enabled ? 'bg-gray-100 text-gray-600' :
                           status.status === 'connected' ? 'bg-green-100 text-green-700' :
+                          status.status === 'updating' ? 'bg-yellow-100 text-yellow-700' :
                           'bg-red-100 text-red-700'
                         }`}>
                           <div className={`w-2 h-2 rounded-full ${
                             !config.enabled ? 'bg-gray-400' :
                             status.status === 'connected' ? 'bg-green-500' :
+                            status.status === 'updating' ? 'bg-yellow-500 animate-pulse' :
                             'bg-red-500'
                           }`} />
                           {!config.enabled ? '無効' :
-                           status.status === 'connected' ? '接続中' : 'エラー'}
+                           status.status === 'connected' ? '接続中' : 
+                           status.status === 'updating' ? '更新中' : 'エラー'}
                         </div>
                       </div>
                       <CardDescription>
@@ -187,8 +244,11 @@ function App() {
                     </CardHeader>
                     <CardContent>
                       {status.toolCount > 0 && (
-                        <p className="text-sm text-muted-foreground mb-3">
-                          ツール数: {status.toolCount}
+                        <p 
+                          className="text-sm text-muted-foreground mb-3 cursor-pointer hover:text-primary transition-colors"
+                          onClick={() => handleShowTools(name)}
+                        >
+                          ツール数: {status.toolCount} (クリックで表示)
                         </p>
                       )}
                       {status.error && (
@@ -290,6 +350,28 @@ function App() {
                       {isSaving ? '保存中...' : (editingServer ? '保存' : '追加')}
                     </Button>
                   </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* ツール一覧ダイアログ */}
+              <Dialog open={toolsDialogOpen !== null} onOpenChange={(open) => {
+                if (!open) setToolsDialogOpen(null)
+              }}>
+                <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>{toolsDialogOpen} のツール一覧</DialogTitle>
+                    <DialogDescription>
+                      利用可能なツールの詳細
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    {serverTools[toolsDialogOpen || '']?.map((tool, index) => (
+                      <div key={index} className="border rounded-lg p-4">
+                        <h4 className="font-semibold text-sm mb-2">{tool.name}</h4>
+                        <p className="text-xs text-muted-foreground">{tool.description}</p>
+                      </div>
+                    ))}
+                  </div>
                 </DialogContent>
               </Dialog>
             </div>

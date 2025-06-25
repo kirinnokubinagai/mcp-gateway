@@ -6,7 +6,7 @@ import { spawn } from 'child_process';
 
 const execAsync = promisify(exec);
 
-async function isPortInUse(port) {
+async function isPortInUse(port: number): Promise<boolean> {
   try {
     const { stdout } = await execAsync(`lsof -i :${port}`);
     return stdout.length > 0;
@@ -16,7 +16,7 @@ async function isPortInUse(port) {
   }
 }
 
-async function main() {
+async function main(): Promise<void> {
   const PORT = 9999;
   
   if (await isPortInUse(PORT)) {
@@ -25,13 +25,13 @@ async function main() {
     process.stdin.resume();
   } else {
     console.log(`🚀 プロキシサーバーを起動します...`);
-    const child = spawn('node', ['server.js'], {
+    const child = spawn('node', ['dist/server.js'], {
       stdio: 'inherit',
       cwd: process.cwd()
     });
     
     child.on('exit', (code) => {
-      process.exit(code);
+      process.exit(code || 0);
     });
   }
 }
