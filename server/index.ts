@@ -112,7 +112,11 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       transport = new StdioClientTransport({
         command: expandedConfig.command,
         args: expandedConfig.args,
-        env: { ...process.env, ...expandedConfig.env } as Record<string, string>,
+        env: { 
+          ...process.env, 
+          ...expandedConfig.env,
+          PATH: process.env.HOST_PATH || process.env.PATH
+        } as Record<string, string>,
       });
     }
     

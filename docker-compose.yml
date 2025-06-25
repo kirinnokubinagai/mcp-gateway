@@ -12,8 +12,7 @@ services:
       - ./mcp-config.json:/app/mcp-config.json
     environment:
       - NODE_ENV=production
-      # プロキシは無効化（直接実行モード）
-      # - MCP_PROXY_URL=ws://docker.for.mac.localhost:9999
+      - MCP_PROXY_URL=ws://host.docker.internal:9999
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

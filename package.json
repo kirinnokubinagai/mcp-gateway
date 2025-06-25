@@ -9,6 +9,7 @@
     "dev:client": "vite",
     "build": "tsc -b && vite build",
     "build:server": "tsc -p tsconfig.server.json",
+    "preview": "vite preview",
     "lint": "eslint .",
     "start": "concurrently -k \"npm run proxy\" \"docker-compose up\"",
     "stop": "docker-compose down && pkill -f 'node.*server.js' || true",
