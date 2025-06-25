@@ -267,6 +267,7 @@ app.get('/api/tools', async (c) => {
         const toolName = tool.name.startsWith(`${serverName}_`) 
           ? tool.name 
           : `${serverName}_${tool.name}`;
+        console.error(`ツール登録: ${tool.name} -> ${toolName}`);
         tools.push({
           name: toolName,
           description: `[${serverName}] ${tool.description}`,
@@ -312,17 +313,34 @@ app.post('/api/tools/call', async (c) => {
     }
     
     // サーバー_ツール形式を解析
+    let serverName: string;
+    let originalToolName: string;
+    
+    // 最初の_で分割してサーバー名を取得
     const separatorIndex = name.indexOf('_');
     if (separatorIndex === -1) {
       throw new Error(`不正なツール名形式: ${name}`);
     }
-    const serverName = name.substring(0, separatorIndex);
-    const originalToolName = name.substring(separatorIndex + 1);
+    
+    const potentialServerName = name.substring(0, separatorIndex);
+    const remainingName = name.substring(separatorIndex + 1);
+    
+    // サーバーが存在し、かつツール名がサーバー名で始まっている場合は、
+    // プレフィックス重複として扱う
+    if (mcpClients.has(potentialServerName) && remainingName.startsWith(potentialServerName + '_')) {
+      serverName = potentialServerName;
+      originalToolName = name; // 元の名前全体をツール名として使用
+    } else {
+      serverName = potentialServerName;
+      originalToolName = remainingName;
+    }
     
     const client = mcpClients.get(serverName);
     if (!client || client.status !== 'connected' || !client.client) {
       throw new Error(`サーバー ${serverName} は接続されていません`);
     }
+    
+    console.error(`ツール実行: ${name} -> サーバー: ${serverName}, ツール: ${originalToolName}`);
     
     const result = await client.client.callTool({
       name: originalToolName,
@@ -362,6 +380,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
         const toolName = tool.name.startsWith(`${serverName}_`) 
           ? tool.name 
           : `${serverName}_${tool.name}`;
+        console.error(`ツール登録: ${tool.name} -> ${toolName}`);
         tools.push({
           name: toolName,
           description: `[${serverName}] ${tool.description}`,
@@ -405,12 +424,27 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   
   // サーバー_ツール形式を解析
+  let serverName: string;
+  let originalToolName: string;
+  
+  // 最初の_で分割してサーバー名を取得
   const separatorIndex = name.indexOf('_');
   if (separatorIndex === -1) {
     throw new Error(`不正なツール名形式: ${name}`);
   }
-  const serverName = name.substring(0, separatorIndex);
-  const originalToolName = name.substring(separatorIndex + 1);
+  
+  const potentialServerName = name.substring(0, separatorIndex);
+  const remainingName = name.substring(separatorIndex + 1);
+  
+  // サーバーが存在し、かつツール名がサーバー名で始まっている場合は、
+  // プレフィックス重複として扱う
+  if (mcpClients.has(potentialServerName) && remainingName.startsWith(potentialServerName + '_')) {
+    serverName = potentialServerName;
+    originalToolName = name; // 元の名前全体をツール名として使用
+  } else {
+    serverName = potentialServerName;
+    originalToolName = remainingName;
+  }
   
   const client = mcpClients.get(serverName);
   if (!client || client.status !== 'connected' || !client.client) {
@@ -418,6 +452,8 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   
   try {
+    console.error(`ツール実行: ${name} -> サーバー: ${serverName}, ツール: ${originalToolName}`);
+    
     const result = await client.client.callTool({
       name: originalToolName,
       arguments: args
