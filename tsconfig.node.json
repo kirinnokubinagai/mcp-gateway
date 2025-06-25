@@ -3,19 +3,28 @@
     "target": "ES2022",
     "lib": ["ES2023"],
     "module": "ESNext",
-    "skipLibCheck": true,
     "moduleResolution": "bundler",
+    "noEmit": true,
     "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "moduleDetection": "force",
-    "composite": true,
-    "emitDeclarationOnly": true,
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "types": ["bun-types", "node"],
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "server/**/*.ts",
+    "mcp-proxy-server/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

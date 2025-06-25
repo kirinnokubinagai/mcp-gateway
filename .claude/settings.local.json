@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(lsof:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(bun:*)",
+      "Bash(MCP_PROXY_URL=ws://localhost:9999 bun server/index.ts)",
+      "Bash(pkill:*)",
+      "Bash(true)",
+      "Bash(open:*)",
+      "Bash(say:*)",
+      "Bash(rm:*)",
+      "Bash(touch:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": []
+  }
+}

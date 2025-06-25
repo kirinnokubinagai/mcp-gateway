@@ -1,0 +1,13 @@
+# Bun configuration
+
+[run]
+# Bunのランタイム設定
+quiet = false
+
+[test]
+# テスト設定
+timeout = 5000
+
+[debug]
+# デバッグ設定
+verbose = false

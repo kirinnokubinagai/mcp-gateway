@@ -1,4 +1,5 @@
-FROM oven/bun:latest
+# Bunをベースイメージとして使用
+FROM oven/bun:1-alpine AS builder
 
 WORKDIR /app
 
@@ -12,7 +13,19 @@ COPY . .
 # ビルド
 RUN bun run build
 
+# 実行用の軽量イメージ
+FROM oven/bun:1-alpine
+
+WORKDIR /app
+
+# ビルド成果物をコピー
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./
+
+# 実行用の依存関係のみインストール
+RUN bun install --production
+
 EXPOSE 3002
 
 # Viteのプレビューサーバーを使用（環境変数でポートを指定）
-CMD ["sh", "-c", "bun run preview -- --host 0.0.0.0 --port ${CLIENT_PORT:-3002}"]
+CMD ["bun", "run", "preview", "--", "--host", "0.0.0.0", "--port", "3002"]

@@ -1,6 +1,29 @@
 # MCP Gateway
 
-複数のMCPサーバーを統合し、Dockerネットワーク経由でアクセス可能にするゲートウェイ
+複数のMCPサーバーを統合し、Dockerネットワーク経由でアクセス可能にするゲートウェイ（Bun専用）
+
+## 📋 必要な環境
+
+### 必須要件
+- **Bun**: v1.0以上（必須）
+- **Docker**: v20以上
+- **Docker Compose**: v2以上
+- **注意**: このプロジェクトはBun専用です。Node.js/npmでは動作しません。
+
+### 推奨環境
+- **OS**: macOS、Linux、Windows (WSL2)
+- **メモリ**: 4GB以上の空きRAM
+- **ストレージ**: 1GB以上の空き容量
+
+### Bunのインストール
+
+```bash
+# macOS、Linux、WSL
+curl -fsSL https://bun.sh/install | bash
+
+# 確認
+bun --version
+```
 
 ## 🎯 特徴
 
@@ -14,18 +37,18 @@
 
 ```bash
 # 起動（プロキシサーバーとDockerコンテナを同時起動）
-npm start
+bun start
 
 # 停止
-npm stop
+bun stop
 
 # ログ確認
-npm run logs
+bun run logs
 ```
 
 ### ⚠️ 重要な注意事項
 
-`docker compose up`を直接実行すると、プロキシサーバーが起動していない場合にエラーメッセージが表示されます。必ず`npm start`を使用してください。
+`docker compose up`を直接実行すると、プロキシサーバーが起動していない場合にエラーメッセージが表示されます。必ず`bun start`を使用してください。
 
 ### アクセスURL
 
@@ -39,10 +62,10 @@ npm run logs
 
 ## 🤖 Claude Desktopでの使用
 
-### 1. ビルド
+### 1. 依存関係のインストール
 
 ```bash
-npm run build:server
+bun install
 ```
 
 ### 2. Claude Desktopへの設定
@@ -65,7 +88,7 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 {
   "mcpServers": {
     "gateway": {
-      "command": "npm",
+      "command": "bun",
       "args": ["run", "mcp:no-ui"],
       "cwd": "/path/to/mcp-gateway"
     }
@@ -167,8 +190,7 @@ claude mcp add -s project gateway --transport http http://mcp-gateway-server:300
 # あなたのプロジェクトのルートで実行
 git submodule add https://github.com/your-username/mcp-gateway.git
 cd mcp-gateway
-npm install
-npm run build:server
+bun install
 ```
 
 **オプションB: 直接コピー**
@@ -182,7 +204,7 @@ cp -r /path/to/mcp-gateway ./mcp-gateway
 ```bash
 # 別ターミナルで実行（重要！）
 cd mcp-gateway
-npm run proxy
+bun run proxy
 ```
 
 ⚠️ **これを忘れるとClaude CodeがMCPサーバーにアクセスできません**
@@ -272,7 +294,7 @@ networks:
 ```bash
 # 1. プロキシサーバーが起動していることを確認
 cd mcp-gateway
-npm run proxy
+bun run proxy
 
 # 2. 別ターミナルでプロジェクトを起動
 cd ..
@@ -307,15 +329,14 @@ claude mcp list
 ```bash
 # 解決策
 cd mcp-gateway
-npm run proxy
+bun run proxy
 ```
 
 #### ❌ エラー: "Cannot find module"
 ```bash
 # 解決策
 cd mcp-gateway
-npm install
-npm run build:server
+bun install
 ```
 
 #### ❌ エラー: ポートが既に使用中
@@ -451,11 +472,8 @@ services:
 ### ビルド
 
 ```bash
-# サーバーのビルド
-npm run build:server
-
-# クライアントのビルド
-npm run build
+# クライアントのビルド（Web UI）
+bun run build
 
 # Dockerイメージのビルド
 docker compose build
@@ -465,10 +483,10 @@ docker compose build
 
 ```bash
 # ローカル開発（Dockerなし）
-npm run dev:local
+bun run dev
 
 # Docker開発モード
-npm run dev
+bun start
 ```
 
 ## 📚 アーキテクチャ

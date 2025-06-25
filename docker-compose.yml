@@ -42,8 +42,8 @@ services:
     volumes:
       - ./mcp-config.json:/app/mcp-config.json
     environment:
-      - NODE_ENV=production
-      - MCP_PROXY_URL=${MCP_PROXY_URL:-ws://host.docker.internal:9999}
+      - MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
+      - DOCKER_ENV=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -61,7 +61,7 @@ services:
     ports:
       - "${MCP_WEB_PORT:-3002}:3002"
     environment:
-      - API_URL=${API_URL:-http://mcp-gateway-server:3003}
+      - MCP_API_PORT=${MCP_API_PORT:-3003}
       - CLIENT_PORT=${MCP_WEB_PORT:-3002}
     depends_on:
       - mcp-gateway-server

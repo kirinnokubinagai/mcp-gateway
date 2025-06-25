@@ -1,5 +1,5 @@
 # Bunをベースイメージとして使用
-FROM oven/bun:latest
+FROM oven/bun:1-alpine
 
 WORKDIR /app
 
@@ -7,22 +7,12 @@ WORKDIR /app
 COPY package.json ./
 RUN bun install --production
 
-# 開発依存関係のインストール（TypeScript用）
-RUN bun add -d typescript @types/node @types/bun
-
 # ソースコードをコピー
-COPY tsconfig.server.json ./
+COPY tsconfig.node.json ./
 COPY server ./server
-
-# TypeScriptをコンパイル
-RUN bun run tsc -p tsconfig.server.json
-
-# 起動スクリプトをコピー
-COPY server/start-servers.sh ./
-RUN chmod +x start-servers.sh
 
 # ポートを公開
 EXPOSE 3003
 
-# 起動コマンド
-CMD ["./start-servers.sh"]
+# 起動コマンド（Bunは直接TypeScriptを実行）
+CMD ["bun", "server/web-server.ts"]

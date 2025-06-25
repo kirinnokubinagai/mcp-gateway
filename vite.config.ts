@@ -11,19 +11,20 @@ export default defineConfig({
     },
   },
   server: {
+    port: Number(process.env.MCP_WEB_PORT) || 3002,
     proxy: {
       '/api': {
-        target: 'http://localhost:3003',
+        target: `http://localhost:${process.env.MCP_API_PORT || 3003}`,
         changeOrigin: true
       }
     }
   },
   preview: {
     host: true,
-    port: 3002,
+    port: Number(process.env.MCP_WEB_PORT) || 3002,
     proxy: {
       '/api': {
-        target: process.env.API_URL || 'http://mcp-gateway-server:3003',
+        target: `http://mcp-gateway-server:${process.env.MCP_API_PORT || 3003}`,
         changeOrigin: true
       }
     }

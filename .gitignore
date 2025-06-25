@@ -34,3 +34,15 @@ mcp-config.json
 # Proxy logs
 proxy.log
 proxy.pid
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Generated files
+vite.config.d.ts
+
+# Bun
+bun.lockb
+
+# Tool versions
+.tool-versions

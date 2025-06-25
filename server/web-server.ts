@@ -2,7 +2,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadStatus, loadTools } from './status-manager.js';
-import { WebSocketServer } from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
@@ -41,11 +40,37 @@ async function saveConfig(config: any) {
   await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
-// Bunのサーバーを起動
+// WebSocketクライアント管理
+const clients = new Set<any>();
+
+// ステータス変更を全クライアントに通知
+export async function broadcastStatusUpdate() {
+  const status = await loadStatus();
+  const message = JSON.stringify({ type: 'status', data: status });
+  
+  clients.forEach(client => {
+    if (client.readyState === 1) { // OPEN
+      client.send(message);
+    }
+  });
+}
+
+// Bunのサーバーを起動（WebSocket対応）
 const server = Bun.serve({
-  port: 3003,
-  async fetch(req: Request) {
+  port: Number(process.env.MCP_API_PORT) || 3003,
+  
+  // HTTPリクエストの処理
+  async fetch(req: Request, server) {
     const url = new URL(req.url);
+    
+    // WebSocketアップグレード
+    if (url.pathname === '/ws') {
+      const upgraded = server.upgrade(req);
+      if (!upgraded) {
+        return new Response('WebSocket upgrade failed', { status: 400 });
+      }
+      return;
+    }
     
     // CORS プリフライトリクエスト
     if (req.method === 'OPTIONS') {
@@ -304,43 +329,27 @@ const server = Bun.serve({
       headers: corsHeaders
     });
   },
+  
+  // WebSocketハンドラー
+  websocket: {
+    open(ws) {
+      clients.add(ws);
+      console.error('WebSocketクライアント接続');
+      
+      // 接続時に現在のステータスを送信
+      loadStatus().then(status => {
+        ws.send(JSON.stringify({ type: 'status', data: status }));
+      });
+    },
+    
+    close(ws) {
+      clients.delete(ws);
+      console.error('WebSocketクライアント切断');
+    },
+    
+    message() {}
+  }
 });
 
 console.error(`Webサーバーがポート ${server.port} で起動しました`);
-
-// WebSocketサーバーを作成
-const wss = new WebSocketServer({ port: 3004 });
-const clients = new Set<any>();
-
-wss.on('connection', (ws) => {
-  clients.add(ws);
-  console.error('WebSocketクライアント接続');
-  
-  // 接続時に現在のステータスを送信
-  loadStatus().then(status => {
-    ws.send(JSON.stringify({ type: 'status', data: status }));
-  });
-  
-  ws.on('close', () => {
-    clients.delete(ws);
-    console.error('WebSocketクライアント切断');
-  });
-  
-  ws.on('error', (error) => {
-    console.error('WebSocketエラー:', error);
-  });
-});
-
-// ステータス変更を全クライアントに通知
-export async function broadcastStatusUpdate() {
-  const status = await loadStatus();
-  const message = JSON.stringify({ type: 'status', data: status });
-  
-  clients.forEach(client => {
-    if (client.readyState === 1) { // OPEN
-      client.send(message);
-    }
-  });
-}
-
-console.error('WebSocketサーバーがポート 3004 で起動しました');
+console.error(`WebSocketは ws://localhost:${server.port}/ws で利用可能です`);
