@@ -9,7 +9,7 @@ const __dirname = dirname(__filename);
 
 process.chdir(__dirname);
 
-// docker-compose runを直接実行（プロキシはdocker-compose upで既に起動済み想定）
+// docker-compose runでstdio通信を実行
 const child = spawn('docker-compose', ['run', '--rm', 'mcp-gateway-server'], {
   stdio: 'inherit'
 });

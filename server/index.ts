@@ -479,18 +479,11 @@ async function main() {
     }
   }
   
-  // API サーバーを起動
-  serve({
-    fetch: app.fetch,
-    port: API_PORT,
-  }, () => {
-    console.error(`MCP Gateway API: http://localhost:${API_PORT}`);
-  });
-  
-  // MCPサーバーを起動
+  // stdioのみで起動（HTTPサーバーは起動しない）
+  console.error("MCP Gateway Server: stdioモードで起動");
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
-  console.error("MCP Gateway Server 起動完了");
+  console.error("MCP Gateway Server 起動完了（stdioモード）");
 }
 
 main().catch((error) => {
