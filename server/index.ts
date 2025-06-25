@@ -378,7 +378,14 @@ app.post('/api/tools/call', async (c) => {
       console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}" (重複プレフィックス対応)`);
     } else {
       serverName = potentialServerName;
-      originalToolName = remainingName;
+      // obsidianの場合は元の名前全体を送信する必要がある
+      if (potentialServerName === 'obsidian') {
+        originalToolName = name; // obsidian_list_files_in_vault
+        console.error(`obsidianサーバー: 元の名前全体を使用 - ツール="${originalToolName}"`);
+      } else {
+        originalToolName = remainingName;
+        console.error(`通常のサーバー: プレフィックスを除去 - ツール="${originalToolName}"`);
+      }
       console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}"`);
     }
     
@@ -554,7 +561,14 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}" (重複プレフィックス対応)`);
   } else {
     serverName = potentialServerName;
-    originalToolName = remainingName;
+    // obsidianの場合は元の名前全体を送信する必要がある
+    if (potentialServerName === 'obsidian') {
+      originalToolName = name; // obsidian_list_files_in_vault
+      console.error(`obsidianサーバー: 元の名前全体を使用 - ツール="${originalToolName}"`);
+    } else {
+      originalToolName = remainingName;
+      console.error(`通常のサーバー: プレフィックスを除去 - ツール="${originalToolName}"`);
+    }
     console.error(`処理結果: サーバー="${serverName}", ツール="${originalToolName}"`);
   }
   
