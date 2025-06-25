@@ -78,6 +78,56 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 - MCP管理用Web UI付きの場合、自動的にDocker Composeも起動されます
 - MCP管理用Web UIは http://localhost:3002 でアクセス可能
 
+## 🤖 Claude Code（Docker版）でのMCP追加方法
+
+### MCPサーバーの追加コマンド
+
+Claude CodeのDockerコンテナ内で、MCP Gatewayを追加するには：
+
+#### 方法1: HTTP Transport（MCP Gatewayの場合）
+```bash
+# HTTPトランスポートでMCP Gatewayを追加
+claude mcp add --transport http gateway http://mcp-gateway-server:3003
+
+# または認証ヘッダー付き
+claude mcp add --transport http gateway http://mcp-gateway-server:3003 --header "Authorization: Bearer your-token"
+```
+
+#### 方法2: Stdio Transport（直接実行）
+```bash
+# Dockerコンテナを直接実行する場合
+claude mcp add gateway docker run -i --rm --init mcp-gateway-server
+
+# 環境変数付き
+claude mcp add gateway -e MCP_CONFIG=/app/config.json -- docker run -i --rm mcp-gateway-server
+```
+
+### 設定の確認
+
+```bash
+# 追加されたMCPサーバーを確認
+claude mcp list
+
+# 特定のサーバーの詳細を表示
+claude mcp get gateway
+
+# サーバーを削除する場合
+claude mcp remove gateway
+```
+
+### スコープについて
+
+MCPサーバーは3つのスコープで管理できます：
+
+- `local`（デフォルト）: 現在のプロジェクトでのみ有効
+- `project`: プロジェクト全体で共有（.mcp.jsonファイル経由）
+- `user`: すべてのプロジェクトで有効
+
+```bash
+# プロジェクト全体で共有する場合
+claude mcp add -s project gateway --transport http http://mcp-gateway-server:3003
+```
+
 ## 🐳 Claude Codeとの統合（他のDockerプロジェクト）
 
 ### 📋 統合の全体像
@@ -217,6 +267,24 @@ docker compose up
 # API: http://localhost:3003/api/status
 ```
 
+#### Step 5: Claude CodeでMCPを追加
+
+Claude Codeコンテナ内で実行：
+
+```bash
+# HTTPトランスポートでMCP Gatewayを追加
+claude mcp add --transport http gateway http://mcp-gateway-server:3003
+
+# 確認
+claude mcp list
+# 出力例:
+# Available MCP servers:
+# - gateway (http) ✓ Connected
+#   Scope: local
+#   Transport: HTTP
+#   URL: http://mcp-gateway-server:3003
+```
+
 ### 💡 よくあるトラブルと解決策
 
 #### ❌ エラー: "MCPプロキシサーバーが起動していません"
@@ -241,9 +309,29 @@ MCP_API_PORT=3013
 MCP_WEB_PORT=3012
 ```
 
+#### ❌ エラー: Claude Codeで "Connection refused"
+```bash
+# HTTPトランスポートを指定する必要があります
+# ❌ 間違い
+claude mcp add gateway http://localhost:3003
+
+# ✅ 正解（サービス名とHTTPトランスポート）
+claude mcp add --transport http gateway http://mcp-gateway-server:3003
+```
+
+#### ❌ エラー: "Network not found"
+```bash
+# docker-compose.ymlに同じネットワークを定義
+networks:
+  app-network:  # 両方のサービスで同じネットワーク名を使用
+    driver: bridge
+```
+
 ### 🎯 Claude Codeでの使用例
 
-Docker内のClaude Codeから、以下のようにMCPツールが使えるようになります：
+#### 使用可能なMCPツール
+
+MCP Gatewayを追加後、以下のようなMCPツールが使えるようになります：
 
 ```
 # Obsidianのファイル操作
