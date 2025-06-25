@@ -312,8 +312,11 @@ app.get('/api/tools', async (c) => {
 
 // ツールの実行（REST API）
 app.post('/api/tools/call', async (c) => {
+  let name: string = '';
   try {
-    const { name, arguments: args } = await c.req.json();
+    const body = await c.req.json();
+    name = body.name;
+    const args = body.arguments;
     
     // 1. 受信したツール名をログ出力
     console.error(`\n=== [REST API] ツール実行開始 ===`);
