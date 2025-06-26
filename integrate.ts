@@ -79,14 +79,17 @@ composeData.services['mcp-gateway-client'] = {
   },
   image: 'mcp-gateway-client:latest',  // 固定イメージ名を追加
   container_name: 'mcp-gateway-client',  // 固定名に変更
-  environment: ['API_URL=http://localhost:${MCP_API_PORT:-3003}'],
+  environment: [
+    'API_URL=http://localhost:${MCP_API_PORT:-3003}',
+    'MCP_API_PORT=${MCP_API_PORT:-3003}'
+  ],
   depends_on: ['mcp-gateway-server'],
+  network_mode: 'host',  // host networkを使用
   restart: 'unless-stopped'
 };
 
 // Claude-Projectはnetwork_mode: hostを使用
 composeData.services['mcp-gateway-server'].network_mode = 'host';
-composeData.services['mcp-gateway-client'].network_mode = 'host';
 
 // claude-codeサービスを更新
 console.log('🔧 claude-codeサービスを更新中...');
