@@ -16,18 +16,21 @@
   },
   "supabase": {
     "enabled": true,
-    "status": "connected",
-    "toolCount": 28
+    "status": "error",
+    "toolCount": 0,
+    "error": "MCP error -32000: Connection closed"
   },
   "desktop-commander": {
     "enabled": true,
-    "status": "connected",
-    "toolCount": 18
+    "status": "error",
+    "toolCount": 0,
+    "error": "MCP error -32000: Connection closed"
   },
   "figma-developer-mcp": {
     "enabled": true,
-    "status": "connected",
-    "toolCount": 2
+    "status": "error",
+    "toolCount": 0,
+    "error": "MCP error -32000: Connection closed"
   },
   "html-to-design": {
     "enabled": true,

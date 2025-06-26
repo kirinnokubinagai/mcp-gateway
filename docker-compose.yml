@@ -69,6 +69,27 @@ services:
     networks:
       - mcp-network
 
+  # Claude Code用のMCPサーバー（stdioモード）
+  mcp-gateway-stdio:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: mcp-gateway-stdio
+    volumes:
+      - ./mcp-config.json:/app/mcp-config.json
+    environment:
+      - MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
+      - DOCKER_ENV=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stdin_open: true
+    tty: true
+    depends_on:
+      proxy-check:
+        condition: service_completed_successfully
+    networks:
+      - mcp-network
+
 networks:
   mcp-network:
     driver: bridge

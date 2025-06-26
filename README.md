@@ -98,6 +98,48 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 - `bun run mcp`はシンプルな起動コマンドで、MCP管理用Web UIは含まれません
 - MCP管理用Web UIが必要な場合は`bun start`を使用してください
 
+## 🤖 Claude Codeでの使用
+
+Claude CodeでMCP Gatewayを使用するには、以下の方法があります：
+
+### 方法1: ローカル実行（推奨）
+
+```bash
+# 1. プロキシサーバーを起動（別ターミナル）
+cd /path/to/mcp-gateway
+bun run proxy
+
+# 2. Claude Codeに追加
+claude mcp add gateway /path/to/mcp-gateway/start-mcp-for-claude.sh
+```
+
+### 方法2: Docker経由での実行
+
+```bash
+# 1. Docker Composeを起動
+cd /path/to/mcp-gateway
+bun start
+
+# 2. Claude Codeに追加（専用コンテナを使用）
+claude mcp add gateway "docker exec -i mcp-gateway-stdio bun server/index.ts"
+```
+
+### 方法3: 既存のプロジェクトのDockerコンテナから実行
+
+既存のプロジェクトでMCP Gatewayが起動している場合：
+
+```bash
+# プロジェクトのディレクトリで確認
+docker ps | grep mcp-gateway
+
+# Claude Codeに追加（コンテナ名を確認して指定）
+claude mcp add gateway "docker exec -i mcp-gateway-server bun server/index.ts"
+```
+
+**注意**: 
+- Docker経由で実行する場合、プロキシサーバーが起動している必要があります
+- コンテナ名は`docker ps`で確認してください
+
 ## 🤖 Claude Code（Docker版）でのMCP追加方法
 
 ### MCPサーバーの追加コマンド
@@ -110,10 +152,10 @@ Claude CodeのDockerコンテナ内で、MCP Gatewayを追加するには：
 
 ```bash
 # Docker execでMCP Gatewayコンテナに接続
-claude mcp add gateway -- docker exec -i mcp-gateway-server-<プロジェクト名> bun server/index.ts
+claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 
 # 環境変数を渡す場合
-claude mcp add gateway -e API_KEY=your-key -- docker exec -i mcp-gateway-server-<プロジェクト名> bun server/index.ts
+claude mcp add gateway -e API_KEY=your-key -- docker exec -i mcp-gateway-server bun server/index.ts
 ```
 
 #### 方法2: ホストマシンでの実行（Dockerを使わない場合）
@@ -190,7 +232,7 @@ cd ~/Claude-Project
 
 # 7. Claude Codeコンテナ内でMCP Gatewayを追加
 docker exec -it claude-code-<プロジェクト名> bash
-claude mcp add gateway -- docker exec -i mcp-gateway-server-<プロジェクト名> bun server/index.ts
+claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 ```
 
 ### ⚠️ 重要：統合後の必須手順
@@ -202,7 +244,7 @@ claude mcp add gateway -- docker exec -i mcp-gateway-server-<プロジェクト�
 docker exec -it claude-code-<プロジェクト名> bash
 
 # MCP Gatewayを追加（docker exec経由）
-claude mcp add gateway -- docker exec -i mcp-gateway-server-<プロジェクト名> bun server/index.ts
+claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 
 # 確認
 claude mcp list

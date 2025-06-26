@@ -2,16 +2,22 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { config } from 'dotenv';
 
-// コマンドライン引数を取得
+// .envファイルを読み込み
+config();
+
+// 環境変数から設定を取得（デフォルト値付き）
+const defaultProjectPath = process.env.DEFAULT_CLAUDE_PROJECT_PATH || '~/Claude-Project';
+const defaultComposeFile = process.env.DEFAULT_COMPOSE_FILE || 'docker-compose-base.yml';
+
+// パスを解決（~をホームディレクトリに展開）
+const expandedProjectPath = defaultProjectPath.replace(/^~/, process.env.HOME!);
+const defaultPath = path.resolve(expandedProjectPath, defaultComposeFile);
+
+// コマンドライン引数を取得（オプション）
 const args = process.argv.slice(2);
-if (args.length !== 1) {
-  console.error('使用方法: ./integrate.ts <docker-compose.ymlファイルのパス>');
-  console.error('例: ./integrate.ts ~/Claude-Project/docker-compose-base.yml');
-  process.exit(1);
-}
-
-const composeFilePath = path.resolve(args[0]);
+const composeFilePath = args.length > 0 ? path.resolve(args[0]) : defaultPath;
 
 // ファイルの存在確認
 if (!fs.existsSync(composeFilePath)) {
@@ -64,8 +70,8 @@ composeData.services['mcp-gateway-server'] = {
     context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
     dockerfile: 'Dockerfile.server'
   },
-  container_name: 'mcp-gateway-server-${PROJECT_NAME}',
-  volumes: ['${CLAUDE_PROJECT_DIR}/mcp-gateway/mcp-config.json:/app/mcp-config.json'],
+  container_name: 'mcp-gateway-server',  // 固定名に変更
+  volumes: ['${CLAUDE_PROJECT_DIR}/mcp-gateway/mcp-config.json:/app/mcp-config.json:ro'],
   environment: [
     'MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}',
     'DOCKER_ENV=true'
@@ -85,7 +91,7 @@ composeData.services['mcp-gateway-client'] = {
     context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
     dockerfile: 'Dockerfile.client'
   },
-  container_name: 'mcp-gateway-client-${PROJECT_NAME}',
+  container_name: 'mcp-gateway-client',  // 固定名に変更
   environment: ['API_URL=http://mcp-gateway-server:3003'],
   depends_on: ['mcp-gateway-server'],
   restart: 'unless-stopped'
@@ -162,18 +168,71 @@ const newYaml = yaml.dump(composeData, {
 
 fs.writeFileSync(composeFilePath, newYaml);
 
+// .envファイルのパスを取得
+const envPath = path.join(path.dirname(composeFilePath), '.env');
+
+// .envファイルが存在しない場合は作成
+if (!fs.existsSync(envPath)) {
+  console.log('📝 .envファイルを作成します...');
+  const defaultEnvContent = `# Claude-Project環境変数
+PROJECT_NAME=default-project
+CLAUDE_PROJECT_DIR=${path.dirname(composeFilePath)}
+MCP_PROXY_PORT=9999
+MCP_API_PORT=3003
+MCP_WEB_PORT=3002
+`;
+  fs.writeFileSync(envPath, defaultEnvContent);
+  console.log(`✅ .envファイルを作成しました: ${envPath}`);
+} else {
+  // 既存の.envファイルを読み込み
+  let envContent = fs.readFileSync(envPath, 'utf8');
+  
+  // 必要な環境変数が存在しない場合は追加
+  const requiredVars = {
+    'PROJECT_NAME': 'default-project',
+    'CLAUDE_PROJECT_DIR': path.dirname(composeFilePath),
+    'MCP_PROXY_PORT': '9999',
+    'MCP_API_PORT': '3003',
+    'MCP_WEB_PORT': '3002'
+  };
+  
+  let updated = false;
+  
+  // MCP Gateway設定セクションを追加
+  if (!envContent.includes('MCP Gateway環境変数')) {
+    envContent += `\n# ==============================================
+# MCP Gateway環境変数
+# ==============================================`;
+    updated = true;
+  }
+  
+  for (const [key, value] of Object.entries(requiredVars)) {
+    if (!envContent.includes(`${key}=`)) {
+      envContent += `\n${key}=${value}`;
+      updated = true;
+    }
+  }
+  
+  if (updated) {
+    fs.writeFileSync(envPath, envContent);
+    console.log(`✅ .envファイルを更新しました: ${envPath}`);
+  }
+}
+
 console.log('✅ MCP Gateway統合が完了しました！');
 console.log('');
+console.log(`📋 統合ファイル: ${composeFilePath}`);
+console.log(`📋 環境変数ファイル: ${envPath}`);
+console.log('');
 console.log('📝 次のステップ:');
-console.log('1. Git Submoduleを追加:');
+console.log('1. プロキシサーバーを起動（別ターミナル）:');
+console.log('   cd ~/Claude-Project/mcp-gateway && bun run proxy');
+console.log('');
+console.log('2. Docker Composeを再起動:');
 console.log('   cd ~/Claude-Project');
-console.log('   git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git');
-console.log('');
-console.log('2. 依存関係をインストール:');
-console.log('   cd mcp-gateway && bun install');
-console.log('');
-console.log('3. プロキシサーバーを起動:');
-console.log('   cd mcp-gateway && bun run proxy');
-console.log('');
-console.log('4. Docker Composeを再起動:');
+console.log('   docker compose down');
 console.log('   ./create-project.sh <プロジェクト名>');
+console.log('');
+console.log('3. MCP Gatewayを追加:');
+console.log('   docker exec -it claude-code-<プロジェクト名> bash');
+console.log('   claude mcp add gateway -- docker exec -i mcp-gateway-server-<プロジェクト名> bun server/index.ts');

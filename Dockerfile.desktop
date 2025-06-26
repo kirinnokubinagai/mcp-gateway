@@ -1,0 +1,15 @@
+# Claude Desktop用のDockerfile
+FROM oven/bun:1-alpine
+
+WORKDIR /app
+
+# 依存関係のインストール
+COPY package.json ./
+COPY bun.lockb ./
+RUN bun install
+
+# すべてのソースコードをコピー
+COPY . .
+
+# MCPサーバーをstdioモードで起動（プロキシサーバーは外部で実行）
+CMD ["bun", "server/index.ts"]
