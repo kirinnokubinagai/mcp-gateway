@@ -84,6 +84,15 @@ cat > ~/.config/claude/mcp-servers.json << 'EOF'
 EOF
 "
 
+# 統合マーカーファイルを作成
+echo -e "${YELLOW}7. 統合マーカーを作成...${NC}"
+cat > .mcp-gateway-integrated << EOF
+# MCP Gateway統合マーカーファイル
+# このファイルが存在する場合、create-project.shがMCP Gateway統合を有効化します
+integrated_at=$(date)
+compose_file=$BASE_COMPOSE_FILE
+EOF
+
 echo -e "\n${GREEN}✅ 統合完了！${NC}"
 echo ""
 echo -e "${GREEN}📌 すべて自動で設定されました:${NC}"
