@@ -137,6 +137,54 @@ const newYaml = yaml.dump(composeData, {
 fs.writeFileSync(composeFilePath, newYaml);
 console.log('✅ Docker Composeファイルを更新しました');
 
+// git submodule として mcp-gateway を追加
+const targetDir = path.dirname(composeFilePath);
+console.log('');
+console.log('🔧 mcp-gatewayをgit submoduleとして追加中...');
+
+// 対象ディレクトリに移動してgit submodule add を実行
+const { execSync } = require('child_process');
+try {
+  // 既にサブモジュールが存在するかチェック
+  const gitmodulesPath = path.join(targetDir, '.gitmodules');
+  let isSubmoduleExists = false;
+  
+  if (fs.existsSync(gitmodulesPath)) {
+    const gitmodulesContent = fs.readFileSync(gitmodulesPath, 'utf8');
+    isSubmoduleExists = gitmodulesContent.includes('[submodule "mcp-gateway"]');
+  }
+  
+  if (!isSubmoduleExists) {
+    // サブモジュールを追加
+    execSync('git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway', {
+      cwd: targetDir,
+      stdio: 'inherit'
+    });
+    console.log('✅ mcp-gatewayをサブモジュールとして追加しました');
+    
+    // サブモジュールを初期化
+    execSync('git submodule update --init --recursive', {
+      cwd: targetDir,
+      stdio: 'inherit'
+    });
+    console.log('✅ サブモジュールを初期化しました');
+  } else {
+    console.log('ℹ️  mcp-gatewayは既にサブモジュールとして存在します');
+    // 既存のサブモジュールを最新に更新
+    execSync('git submodule update --init --recursive', {
+      cwd: targetDir,
+      stdio: 'inherit'
+    });
+    console.log('✅ サブモジュールを更新しました');
+  }
+} catch (error: any) {
+  console.error('⚠️  git submodule追加中にエラーが発生しました:', error.message);
+  console.log('手動で以下のコマンドを実行してください:');
+  console.log(`cd ${targetDir}`);
+  console.log('git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway');
+  console.log('git submodule update --init --recursive');
+}
+
 // .envファイルのパスを取得
 const envPath = path.join(path.dirname(composeFilePath), '.env');
 
