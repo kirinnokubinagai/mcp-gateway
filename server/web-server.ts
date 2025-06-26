@@ -4,7 +4,11 @@ import { fileURLToPath } from 'url';
 import { loadStatus, loadTools } from './status-manager.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
+// Docker環境では環境変数から設定ファイルパスを取得、なければデフォルト
+const CONFIG_FILE = process.env.CONFIG_FILE || (process.env.DOCKER_ENV ? '/app/mcp-config.json' : path.join(__dirname, '../mcp-config.json'));
+console.error('CONFIG_FILE:', CONFIG_FILE);
+console.error('DOCKER_ENV:', process.env.DOCKER_ENV);
+console.error('__dirname:', __dirname);
 
 // 型定義
 interface ServerConfig {
@@ -22,22 +26,72 @@ interface UpdateServerRequest extends ServerConfig {
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+  'Access-Control-Allow-Credentials': 'true'
 };
 
 // 設定の読み込み
 async function loadConfig() {
   try {
+    // ファイルの存在とサイズを確認
+    const stats = await fs.stat(CONFIG_FILE).catch(() => null);
+    if (!stats) {
+      console.error(`[loadConfig] 設定ファイルが存在しません: ${CONFIG_FILE}`);
+      return { mcpServers: {} };
+    }
+    
+    if (stats.size === 0) {
+      console.error(`[loadConfig] 設定ファイルが空です: ${CONFIG_FILE}`);
+      // 空のファイルの場合、デフォルト設定を返す
+      const defaultConfig = { mcpServers: {} };
+      // 空のファイルを初期化
+      await saveConfig(defaultConfig);
+      return defaultConfig;
+    }
+    
     const data = await fs.readFile(CONFIG_FILE, 'utf-8');
-    return JSON.parse(data);
+    const config = JSON.parse(data);
+    console.error(`[loadConfig] 設定を読み込みました: ${Object.keys(config.mcpServers || {}).length}個のサーバー`);
+    return config;
   } catch (error) {
-    return { servers: {} };
+    console.error(`[loadConfig] エラー:`, error);
+    return { mcpServers: {} };
   }
 }
 
-// 設定の保存
+// 設定の保存（アトミック書き込み）
 async function saveConfig(config: any) {
-  await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+  const tempFile = `${CONFIG_FILE}.tmp`;
+  const backupFile = `${CONFIG_FILE}.backup`;
+  
+  try {
+    // 検証: 設定が有効なJSONであることを確認
+    const jsonStr = JSON.stringify(config, null, 2);
+    JSON.parse(jsonStr); // パースできることを確認
+    
+    // 既存ファイルのバックアップ
+    try {
+      await fs.copyFile(CONFIG_FILE, backupFile);
+    } catch (error) {
+      // バックアップファイルが作成できなくても続行
+      console.error('[saveConfig] バックアップ作成をスキップ:', error);
+    }
+    
+    // 一時ファイルに書き込み
+    await fs.writeFile(tempFile, jsonStr);
+    
+    // アトミックに置換
+    await fs.rename(tempFile, CONFIG_FILE);
+    
+    console.error(`[saveConfig] 設定を保存しました: ${Object.keys(config.mcpServers || {}).length}個のサーバー`);
+  } catch (error) {
+    console.error('[saveConfig] エラー:', error);
+    // 一時ファイルのクリーンアップ
+    try {
+      await fs.unlink(tempFile);
+    } catch {}
+    throw error;
+  }
 }
 
 // WebSocketクライアント管理
@@ -55,13 +109,40 @@ export async function broadcastStatusUpdate() {
   });
 }
 
+// 初期化処理：設定ファイルが存在しない場合はデフォルトを作成
+async function initializeConfig() {
+  try {
+    const stats = await fs.stat(CONFIG_FILE).catch(() => null);
+    if (!stats) {
+      console.error('[初期化] 設定ファイルが存在しないため、デフォルト設定を作成します');
+      const dir = path.dirname(CONFIG_FILE);
+      // ディレクトリが存在しない場合は作成
+      await fs.mkdir(dir, { recursive: true }).catch(() => {});
+      
+      const defaultConfig = {
+        mcpServers: {}
+      };
+      await saveConfig(defaultConfig);
+      console.error('[初期化] デフォルト設定ファイルを作成しました');
+    } else {
+      console.error('[初期化] 既存の設定ファイルを使用します');
+    }
+  } catch (error) {
+    console.error('[初期化] エラー:', error);
+  }
+}
+
+// サーバー起動前に初期化
+await initializeConfig();
+
 // Bunのサーバーを起動（WebSocket対応）
 const server = Bun.serve({
-  port: Number(process.env.MCP_API_PORT) || 3003,
+  port: Number(process.env.PORT || process.env.MCP_API_PORT) || 3003,
   
   // HTTPリクエストの処理
   async fetch(req: Request, server) {
     const url = new URL(req.url);
+    console.error(`[HTTP] ${req.method} ${url.pathname}`);
     
     // WebSocketアップグレード
     if (url.pathname === '/ws') {
@@ -124,6 +205,7 @@ const server = Bun.serve({
     // サーバーの作成
     if (url.pathname.startsWith('/api/servers/') && req.method === 'POST') {
       try {
+        console.error('[POST] サーバー作成リクエスト:', url.pathname);
         const serverName = url.pathname.split('/').pop();
         if (!serverName) {
           return new Response(JSON.stringify({ error: 'サーバー名が必要です' }), {
@@ -139,7 +221,7 @@ const server = Bun.serve({
         const config = await loadConfig();
         
         // 既に存在する場合はエラー
-        if (config.servers[serverName]) {
+        if (config.mcpServers[serverName]) {
           return new Response(JSON.stringify({ error: 'サーバーは既に存在します' }), {
             status: 409,
             headers: {
@@ -149,8 +231,9 @@ const server = Bun.serve({
           });
         }
         
-        config.servers[serverName] = serverConfig;
+        config.mcpServers[serverName] = serverConfig;
         await saveConfig(config);
+        console.error(`[POST] サーバー作成成功: ${serverName}`);
         
         return new Response(JSON.stringify({ success: true }), {
           headers: {
@@ -188,7 +271,7 @@ const server = Bun.serve({
         const config = await loadConfig();
         
         // 存在しない場合はエラー
-        if (!config.servers[serverName]) {
+        if (!config.mcpServers[serverName]) {
           return new Response(JSON.stringify({ error: 'サーバーが見つかりません' }), {
             status: 404,
             headers: {
@@ -199,12 +282,12 @@ const server = Bun.serve({
         }
         
         // サーバー設定を更新
-        config.servers[serverName] = serverConfig;
+        config.mcpServers[serverName] = serverConfig;
         
         // 名前が変更される場合
         if (newName && newName !== serverName) {
-          config.servers[newName] = config.servers[serverName];
-          delete config.servers[serverName];
+          config.mcpServers[newName] = config.mcpServers[serverName];
+          delete config.mcpServers[serverName];
         }
         
         await saveConfig(config);
@@ -242,7 +325,7 @@ const server = Bun.serve({
         
         const config = await loadConfig();
         
-        if (!config.servers[serverName]) {
+        if (!config.mcpServers[serverName]) {
           return new Response(JSON.stringify({ error: 'サーバーが見つかりません' }), {
             status: 404,
             headers: {
@@ -252,7 +335,7 @@ const server = Bun.serve({
           });
         }
         
-        delete config.servers[serverName];
+        delete config.mcpServers[serverName];
         await saveConfig(config);
         
         return new Response(JSON.stringify({ success: true }), {
@@ -290,7 +373,7 @@ const server = Bun.serve({
         
         // MCPサーバーに接続してツールリストを取得する
         const config = await loadConfig();
-        const serverConfig = config.servers[serverName];
+        const serverConfig = config.mcpServers[serverName];
         
         if (!serverConfig) {
           return new Response(JSON.stringify({ error: 'サーバーが見つかりません' }), {
