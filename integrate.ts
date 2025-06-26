@@ -52,21 +52,7 @@ if (!composeData.services) {
 // MCP Gatewayサービスを追加
 console.log('🔧 MCP Gatewayサービスを追加中...');
 
-// claude-codeがnetwork_mode: hostを使用しているかチェック
-const useHostNetwork = composeData.services['claude-code']?.network_mode === 'host';
 
-// プロキシチェッカーサービス
-composeData.services['mcp-proxy-check'] = {
-  image: 'busybox',
-  command: `sh -c "
-    if ! nc -z host.docker.internal 9999 2>/dev/null; then
-      echo '❌ エラー: MCPプロキシサーバーが起動していません！'
-      echo '👉 cd mcp-gateway && bun run proxy'
-      exit 1
-    fi
-  "`,
-  extra_hosts: ['host.docker.internal:host-gateway']
-};
 
 // MCP Gateway APIサーバー
 composeData.services['mcp-gateway-server'] = {
@@ -81,11 +67,6 @@ composeData.services['mcp-gateway-server'] = {
     'DOCKER_ENV=true'
   ],
   extra_hosts: ['host.docker.internal:host-gateway'],
-  depends_on: {
-    'mcp-proxy-check': {
-      condition: 'service_completed_successfully'
-    }
-  },
   restart: 'unless-stopped'
 };
 
@@ -96,37 +77,14 @@ composeData.services['mcp-gateway-client'] = {
     dockerfile: 'Dockerfile.client'
   },
   container_name: 'mcp-gateway-client',  // 固定名に変更
-  environment: ['API_URL=http://mcp-gateway-server:3003'],
+  environment: ['API_URL=http://localhost:${MCP_API_PORT:-3003}'],
   depends_on: ['mcp-gateway-server'],
   restart: 'unless-stopped'
 };
 
-// network_mode: hostの場合はnetworksを追加しない
-if (!useHostNetwork) {
-  // 通常のネットワークモード
-  composeData.services['mcp-proxy-check'].networks = ['app-network'];
-  composeData.services['mcp-gateway-server'].networks = ['app-network'];
-  composeData.services['mcp-gateway-client'].networks = ['app-network'];
-  
-  // ポート設定を追加
-  composeData.services['mcp-gateway-server'].ports = ['${MCP_API_PORT:-3003}:3003'];
-  composeData.services['mcp-gateway-client'].ports = ['${MCP_WEB_PORT:-3002}:3002'];
-  
-  // networksセクションがない場合は追加
-  if (!composeData.networks) {
-    composeData.networks = {};
-  }
-  if (!composeData.networks['app-network']) {
-    composeData.networks['app-network'] = {
-      driver: 'bridge'
-    };
-  }
-} else {
-  // hostネットワークモードの場合
-  composeData.services['mcp-gateway-server'].network_mode = 'host';
-  composeData.services['mcp-gateway-client'].network_mode = 'host';
-  // portsは設定しない（host networkモードでは不要）
-}
+// Claude-Projectはnetwork_mode: hostを使用
+composeData.services['mcp-gateway-server'].network_mode = 'host';
+composeData.services['mcp-gateway-client'].network_mode = 'host';
 
 // claude-codeサービスを更新
 console.log('🔧 claude-codeサービスを更新中...');
@@ -163,17 +121,15 @@ if (composeData.services['claude-code']) {
   }
 }
 
-// 既に統合されていない場合のみYAMLファイルを更新
-if (!isAlreadyIntegrated) {
-  // YAMLファイルに書き込み
-  const newYaml = yaml.dump(composeData, {
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: false
-  });
+// YAMLファイルに書き込み（常に更新して固定名を確実に適用）
+const newYaml = yaml.dump(composeData, {
+  lineWidth: -1,
+  noRefs: true,
+  sortKeys: false
+});
 
-  fs.writeFileSync(composeFilePath, newYaml);
-}
+fs.writeFileSync(composeFilePath, newYaml);
+console.log('✅ Docker Composeファイルを更新しました');
 
 // .envファイルのパスを取得
 const envPath = path.join(path.dirname(composeFilePath), '.env');
@@ -182,7 +138,6 @@ const envPath = path.join(path.dirname(composeFilePath), '.env');
 if (!fs.existsSync(envPath)) {
   console.log('📝 .envファイルを作成します...');
   const defaultEnvContent = `# Claude-Project環境変数
-PROJECT_NAME=default-project
 CLAUDE_PROJECT_DIR=${path.dirname(composeFilePath)}
 MCP_PROXY_PORT=9999
 MCP_API_PORT=3003
@@ -196,7 +151,6 @@ MCP_WEB_PORT=3002
   
   // 必要な環境変数が存在しない場合は追加
   const requiredVars = {
-    'PROJECT_NAME': 'default-project',
     'CLAUDE_PROJECT_DIR': path.dirname(composeFilePath),
     'MCP_PROXY_PORT': '9999',
     'MCP_API_PORT': '3003',

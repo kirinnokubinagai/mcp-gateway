@@ -132,13 +132,13 @@ claude mcp add gateway "docker exec -i mcp-gateway-stdio bun server/index.ts"
 # プロジェクトのディレクトリで確認
 docker ps | grep mcp-gateway
 
-# Claude Codeに追加（コンテナ名を確認して指定）
-claude mcp add gateway "docker exec -i mcp-gateway-server bun server/index.ts"
+# Claude Codeに追加（固定コンテナ名を使用）
+claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 ```
 
 **注意**: 
 - Docker経由で実行する場合、プロキシサーバーが起動している必要があります
-- コンテナ名は`docker ps`で確認してください
+- `--`を忘れずに付けてください（`claude mcp add`のオプションとコマンドを区別するため）
 
 ## 🤖 Claude Code（Docker版）でのMCP追加方法
 
@@ -158,24 +158,15 @@ claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 claude mcp add gateway -e API_KEY=your-key -- docker exec -i mcp-gateway-server bun server/index.ts
 ```
 
-#### 方法2: ホストマシンでの実行（Dockerを使わない場合）
+#### 方法2: HTTP トランスポート（非推奨）
 
-ホストマシンで直接実行する場合：
-
-```bash
-# ホストマシンでMCP Gatewayディレクトリに移動して実行
-claude mcp add gateway -- /bin/sh -c "cd /path/to/mcp-gateway && bun run mcp"
-```
-
-#### 方法3: 新規コンテナの起動（単体実行）
+**注意**: MCP Gateway の HTTP API は MCP プロトコルに準拠していないため、この方法は動作しません。
 
 ```bash
-# 新しいDockerコンテナを起動する場合
-claude mcp add gateway docker run -i --rm --init mcp-gateway-server
-
-# 環境変数付き
-claude mcp add gateway -e MCP_CONFIG=/app/config.json -- docker run -i --rm mcp-gateway-server
+# ❌ 動作しない例
+claude mcp add --transport http gateway http://mcp-gateway-server:3003
 ```
+
 
 ### 設定の確認
 
@@ -190,47 +181,55 @@ claude mcp get gateway
 claude mcp remove gateway
 ```
 
-### スコープについて
-
-MCPサーバーは3つのスコープで管理できます：
-
-- `local`（デフォルト）: 現在のプロジェクトでのみ有効
-- `project`: プロジェクト全体で共有（.mcp.jsonファイル経由）
-- `user`: すべてのプロジェクトで有効
-
-```bash
-# プロジェクト全体で共有する場合
-claude mcp add -s project gateway --transport http http://mcp-gateway-server:3003
-```
 
 ## 🐳 Claude-Projectとの統合
 
-詳細は[HOW_TO_INTEGRATE.md](HOW_TO_INTEGRATE.md)を参照してください。
+### 前提条件
+- Claude-Projectが既にセットアップされている
+- Bunがインストールされている
+- Dockerが起動している
 
-### クイック統合手順
+### 統合手順
 
+#### 1. Claude-Projectディレクトリに移動
 ```bash
-# 1. Claude-Projectに移動
 cd ~/Claude-Project
+```
 
-# 2. Git Submoduleとして追加
+#### 2. Git SubmoduleとしてMCP Gatewayを追加
+```bash
 git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway
+git submodule update --init --recursive
+```
 
-# 3. 依存関係インストール
-cd mcp-gateway && bun install
-
-# 4. 統合スクリプトを実行
-./integrate.ts ~/Claude-Project/docker-compose-base.yml
+#### 3. 依存関係をインストール
+```bash
+cd mcp-gateway
+bun install
 cd ..
+```
 
-# 5. プロキシサーバー起動（別ターミナル）
-cd mcp-gateway && bun run proxy
+#### 4. 統合スクリプトを実行
+```bash
+# integrate.tsを使用してdocker-compose.ymlを自動更新
+./mcp-gateway/integrate.ts ~/Claude-Project/docker-compose-base.yml
+```
 
-# 6. プロジェクトを起動
+#### 5. プロキシサーバーを起動（別ターミナルで）
+```bash
+cd mcp-gateway
+bun run proxy
+```
+※ ポート9999で起動します
+
+#### 6. プロジェクトを起動
+```bash
 cd ~/Claude-Project
 ./create-project.sh <プロジェクト名>
+```
 
-# 7. Claude Codeコンテナ内でMCP Gatewayを追加
+#### 7. Claude Codeコンテナ内でMCP Gatewayを追加
+```bash
 docker exec -it claude-code-<プロジェクト名> bash
 claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 ```
@@ -243,7 +242,7 @@ claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 # コンテナに入る
 docker exec -it claude-code-<プロジェクト名> bash
 
-# MCP Gatewayを追加（docker exec経由）
+# MCP Gatewayを追加（docker exec経由、固定コンテナ名を使用）
 claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 
 # 確認
@@ -251,6 +250,72 @@ claude mcp list
 ```
 
 これにより、すべてのMCPサーバー（obsidian、github、context7など）がGateway経由で利用可能になります。
+
+**注意**: 統合スクリプトによってコンテナ名は`mcp-gateway-server`に固定されているため、プロジェクト名に関係なく同じコマンドで動作します。
+
+### integrate.ts スクリプトの動作
+
+`integrate.ts`は、既存のdocker-compose.ymlファイルにMCP Gatewayサービスを自動的に追加するTypeScriptスクリプトです。
+
+#### 使用方法
+```bash
+./integrate.ts <docker-compose.ymlファイルのパス>
+```
+
+#### スクリプトが行う処理
+
+1. **YAMLファイルの読み込みと解析**
+   - js-yamlライブラリを使用してdocker-compose.ymlを解析
+   - バックアップファイル（.backup）を自動作成
+
+2. **サービスの追加**
+   ```yaml
+   # 以下のサービスが自動的に追加されます：
+   mcp-proxy-check:      # プロキシサーバーの起動確認
+   mcp-gateway-server:   # MCP Gateway APIサーバー（固定名）
+   mcp-gateway-client:   # MCP管理用Web UI（固定名）
+   ```
+   
+   - **MCP管理用Web UI**: http://localhost:3002 でアクセス可能
+   - **MCP Gateway API**: http://localhost:3003 でアクセス可能
+
+3. **既存サービスの更新**
+   - `claude-code`サービスに環境変数`MCP_GATEWAY_URL`を追加
+   - 依存関係（depends_on）に`mcp-gateway-server`を追加
+   - MCP設定ファイルのボリュームマウントを追加
+
+4. **ネットワーク設定の自動判定**
+   - `network_mode: host`の場合：ポート設定をスキップ
+   - 通常モードの場合：適切なポートとネットワークを設定
+
+5. **.envファイルの更新**
+   ```bash
+   # 以下の環境変数が自動的に追加されます：
+   PROJECT_NAME=default-project
+   CLAUDE_PROJECT_DIR=/path/to/claude-project
+   MCP_PROXY_PORT=9999
+   MCP_API_PORT=3003
+   MCP_WEB_PORT=3002
+   ```
+
+#### 統合後の構成
+```yaml
+services:
+  claude-code:
+    # 既存の設定...
+    environment:
+      - MCP_GATEWAY_URL=http://mcp-gateway-server:3003  # 自動追加
+    volumes:
+      # MCP設定ファイルの自動マウント
+      - ${CLAUDE_PROJECT_DIR}/mcp-gateway/claude-project-integration/mcp-servers-gateway.json:/home/developer/.config/claude/mcp-servers.json:ro
+    depends_on:
+      - mcp-gateway-server  # 自動追加
+
+  # 以下、自動追加されるサービス
+  mcp-gateway-server:
+    container_name: mcp-gateway-server  # 固定名
+    # ...
+```
 
 ## 🐳 その他のDockerプロジェクトとの統合
 
@@ -421,17 +486,15 @@ docker compose up
 Claude Codeコンテナ内で実行：
 
 ```bash
-# HTTPトランスポートでMCP Gatewayを追加
-claude mcp add --transport http gateway http://mcp-gateway-server:3003
+# Docker execでMCP Gatewayを追加（HTTPトランスポートは非対応）
+claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 
 # 確認
 claude mcp list
 # 出力例:
 # Available MCP servers:
-# - gateway (http) ✓ Connected
+# - gateway (stdio) ✓ Connected
 #   Scope: local
-#   Transport: HTTP
-#   URL: http://mcp-gateway-server:3003
 ```
 
 ### 💡 よくあるトラブルと解決策
@@ -459,12 +522,12 @@ MCP_WEB_PORT=3012
 
 #### ❌ エラー: Claude Codeで "Connection refused"
 ```bash
-# HTTPトランスポートを指定する必要があります
+# Docker execを使用する必要があります（HTTPトランスポートは非対応）
 # ❌ 間違い
-claude mcp add gateway http://localhost:3003
-
-# ✅ 正解（サービス名とHTTPトランスポート）
 claude mcp add --transport http gateway http://mcp-gateway-server:3003
+
+# ✅ 正解（Docker exec経由）
+claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 ```
 
 #### ❌ エラー: "Network not found"

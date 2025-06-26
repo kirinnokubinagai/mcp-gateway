@@ -8,6 +8,7 @@
     "dev:server": "bun --watch server/index.ts",
     "dev:web": "bun --watch server/web-server.ts",
     "build": "bunx vite build",
+    "preview": "bunx vite preview",
     "start": "bun run proxy & docker-compose up",
     "mcp": "bun run proxy & sleep 2 && bun server/index.ts",
     "mcp:no-ui": "bun run proxy & sleep 2 && MCP_NO_UI=true bun server/index.ts",

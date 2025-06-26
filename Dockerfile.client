@@ -18,14 +18,14 @@ FROM oven/bun:1-alpine
 
 WORKDIR /app
 
-# ビルド成果物をコピー
+# ビルド成果物とpackage.jsonをコピー
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 
-# 実行用の依存関係のみインストール
-RUN bun install --production
+# viteを含む全ての依存関係をインストール
+RUN bun install
 
 EXPOSE 3002
 
-# Viteのプレビューサーバーを使用（環境変数でポートを指定）
+# Viteプレビューサーバーを起動
 CMD ["bun", "run", "preview", "--", "--host", "0.0.0.0", "--port", "3002"]
