@@ -581,13 +581,26 @@ bun run clean
 
 既存のClaude-ProjectにMCP Gatewayを統合する場合：
 
+### デフォルトパス（~/Claude-Project）の場合
 ```bash
-# ワンコマンドで統合
+# MCP Gatewayディレクトリで実行
 ./setup-claude-project.sh
-
-# または、カスタムパスを指定
-./setup-claude-project.sh /path/to/your/Claude-Project
 ```
+
+### カスタムパスを指定する場合
+```bash
+# 第1引数でClaude-Projectのパスを指定
+./setup-claude-project.sh /path/to/your/Claude-Project
+
+# 例：
+./setup-claude-project.sh ~/Projects/my-claude-project
+./setup-claude-project.sh /Users/username/Documents/Claude-Project
+```
+
+スクリプトは以下を自動実行：
+1. 統合ファイルを指定されたClaude-Projectディレクトリにコピー
+2. 対話式でセットアップを続行するか確認
+3. Git Submoduleの追加やDocker設定の作成
 
 詳細は[claude-project-integration/README.md](claude-project-integration/README.md)を参照してください。
 
