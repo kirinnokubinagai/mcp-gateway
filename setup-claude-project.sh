@@ -13,13 +13,13 @@ NC='\033[0m' # No Color
 # 使用方法を表示
 usage() {
     echo "使用方法:"
-    echo "  $0 [Claude-Projectパス] [ベースとなるdocker-compose.yml]"
+    echo "  $0 [Claude-Projectパス] <docker-compose.ymlファイル名>"
     echo ""
     echo "例:"
-    echo "  $0                                              # デフォルト: ~/Claude-Project, docker-compose-base.yml"
-    echo "  $0 /path/to/project                            # カスタムパス, docker-compose-base.yml"
-    echo "  $0 /path/to/project docker-compose.yml         # カスタムパス, カスタムファイル"
-    echo "  $0 ~/Claude-Project docker-compose-teams.yml   # デフォルトパス, teams用ファイル"
+    echo "  $0 ~/Claude-Project docker-compose-base.yml"
+    echo "  $0 /path/to/project docker-compose.yml"
+    echo "  $0 ~/Claude-Project docker-compose-teams.yml"
+    echo "  $0 . docker-compose-dev.yml"
     exit 1
 }
 
@@ -31,8 +31,13 @@ fi
 # Claude-Projectディレクトリのパスを設定
 CLAUDE_PROJECT_DIR="${1:-$HOME/Claude-Project}"
 
-# ベースとなるdocker-compose.ymlファイル名
-BASE_COMPOSE_FILE="${2:-docker-compose-base.yml}"
+# ベースとなるdocker-compose.ymlファイル名（必須）
+if [ -z "$2" ]; then
+    echo -e "${RED}❌ エラー: docker-compose.ymlファイルを指定してください${NC}"
+    echo ""
+    usage
+fi
+BASE_COMPOSE_FILE="$2"
 
 # Claude-Projectディレクトリの存在確認
 if [ ! -d "$CLAUDE_PROJECT_DIR" ]; then
@@ -141,8 +146,8 @@ if [ ! -e "start-with-gateway.sh" ]; then
 
 echo "🚀 MCP Gateway統合環境を起動します..."
 
-# ベースファイルを環境変数から取得（デフォルト: docker-compose-base.yml）
-BASE_COMPOSE_FILE="\${BASE_COMPOSE_FILE:-$BASE_COMPOSE_FILE}"
+# ベースファイルを取得
+BASE_COMPOSE_FILE="$BASE_COMPOSE_FILE"
 
 echo "📄 使用するベースファイル: \$BASE_COMPOSE_FILE"
 

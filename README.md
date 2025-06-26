@@ -581,42 +581,29 @@ bun run clean
 
 既存のClaude-ProjectにMCP Gatewayを統合する場合：
 
-### 基本的な使い方
+### 使用方法
 ```bash
-# デフォルト設定（~/Claude-Project, docker-compose-base.yml）
-./setup-claude-project.sh
+./setup-claude-project.sh [Claude-Projectパス] <docker-compose.ymlファイル名>
 ```
 
-### カスタムパスを指定
-```bash
-# 第1引数: Claude-Projectのパス
-./setup-claude-project.sh /path/to/your/Claude-Project
-```
-
-### Docker Composeファイルも指定
-```bash
-# 第1引数: Claude-Projectのパス
-# 第2引数: ベースとなるdocker-compose.ymlファイル名
-./setup-claude-project.sh /path/to/project docker-compose.yml
-
-# 例：
-./setup-claude-project.sh ~/Claude-Project docker-compose-teams.yml
-./setup-claude-project.sh . docker-compose-dev.yml
-```
+**注意**: docker-compose.ymlファイル名は必須です。
 
 ### 使用例
 ```bash
-# デフォルト設定
-./setup-claude-project.sh
+# 基本的な使い方
+./setup-claude-project.sh ~/Claude-Project docker-compose-base.yml
 
-# カスタムプロジェクトパス
-./setup-claude-project.sh ~/Projects/my-claude-project
+# カスタムパス
+./setup-claude-project.sh /path/to/project docker-compose.yml
 
 # teams環境用
 ./setup-claude-project.sh ~/Claude-Project docker-compose-teams.yml
 
 # 開発環境用
 ./setup-claude-project.sh ~/Claude-Project docker-compose-dev.yml
+
+# カレントディレクトリで実行
+./setup-claude-project.sh . docker-compose.yml
 ```
 
 スクリプトは以下を自動実行：
