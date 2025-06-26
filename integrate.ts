@@ -8,12 +8,11 @@ import { config } from 'dotenv';
 config();
 
 // 環境変数から設定を取得（デフォルト値付き）
-const defaultProjectPath = process.env.DEFAULT_CLAUDE_PROJECT_PATH || '~/Claude-Project';
-const defaultComposeFile = process.env.DEFAULT_COMPOSE_FILE || 'docker-compose-base.yml';
+const defaultComposePath = process.env.DEFAULT_DOCKER_COMPOSE_PATH || '~/Claude-Project/docker-compose-base.yml';
 
 // パスを解決（~をホームディレクトリに展開）
-const expandedProjectPath = defaultProjectPath.replace(/^~/, process.env.HOME!);
-const defaultPath = path.resolve(expandedProjectPath, defaultComposeFile);
+const expandedPath = defaultComposePath.replace(/^~/, process.env.HOME!);
+const defaultPath = path.resolve(expandedPath);
 
 // コマンドライン引数を取得（オプション）
 const args = process.argv.slice(2);
