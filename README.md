@@ -581,20 +581,42 @@ bun run clean
 
 既存のClaude-ProjectにMCP Gatewayを統合する場合：
 
-### デフォルトパス（~/Claude-Project）の場合
+### 基本的な使い方
 ```bash
-# MCP Gatewayディレクトリで実行
+# デフォルト設定（~/Claude-Project, docker-compose-base.yml）
 ./setup-claude-project.sh
 ```
 
-### カスタムパスを指定する場合
+### カスタムパスを指定
 ```bash
-# 第1引数でClaude-Projectのパスを指定
+# 第1引数: Claude-Projectのパス
 ./setup-claude-project.sh /path/to/your/Claude-Project
+```
+
+### Docker Composeファイルも指定
+```bash
+# 第1引数: Claude-Projectのパス
+# 第2引数: ベースとなるdocker-compose.ymlファイル名
+./setup-claude-project.sh /path/to/project docker-compose.yml
 
 # 例：
+./setup-claude-project.sh ~/Claude-Project docker-compose-teams.yml
+./setup-claude-project.sh . docker-compose-dev.yml
+```
+
+### 使用例
+```bash
+# デフォルト設定
+./setup-claude-project.sh
+
+# カスタムプロジェクトパス
 ./setup-claude-project.sh ~/Projects/my-claude-project
-./setup-claude-project.sh /Users/username/Documents/Claude-Project
+
+# teams環境用
+./setup-claude-project.sh ~/Claude-Project docker-compose-teams.yml
+
+# 開発環境用
+./setup-claude-project.sh ~/Claude-Project docker-compose-dev.yml
 ```
 
 スクリプトは以下を自動実行：
