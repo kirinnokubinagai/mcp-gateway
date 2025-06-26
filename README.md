@@ -177,15 +177,41 @@ cd ~/Claude-Project
 # 2. Git Submoduleとして追加
 git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway
 
-# 3. 依存関係インストール
-cd mcp-gateway && bun install && cd ..
+# 3. 統合スクリプトを実行
+cd mcp-gateway
+./integrate.ts ../docker-compose-base.yml
 
-# 4. プロキシサーバー起動（別ターミナル）
+# 4. 依存関係インストール
+bun install && cd ..
+
+# 5. プロキシサーバー起動（別ターミナル）
 cd mcp-gateway && bun run proxy
 
-# 5. Docker Compose起動時に統合ファイルを使用
-docker compose -f docker-compose-base.yml -f mcp-gateway/claude-project-integration/docker-compose.yml up -d
+# 6. プロジェクトを起動
+cd ~/Claude-Project
+./create-project.sh <プロジェクト名>
+
+# 7. Claude Codeコンテナ内でMCP Gatewayを追加
+docker exec -it claude-code-<プロジェクト名> bash
+claude mcp add --transport http gateway http://mcp-gateway-server:3003
 ```
+
+### ⚠️ 重要：統合後の必須手順
+
+**統合後も、Claude Codeコンテナ内で`claude mcp add`コマンドの実行が必要です！**
+
+```bash
+# コンテナに入る
+docker exec -it claude-code-<プロジェクト名> bash
+
+# MCP Gatewayを追加（HTTPトランスポート）
+claude mcp add --transport http gateway http://mcp-gateway-server:3003
+
+# 確認
+claude mcp list
+```
+
+これにより、すべてのMCPサーバー（obsidian、github、context7など）がGateway経由で利用可能になります。
 
 ## 🐳 その他のDockerプロジェクトとの統合
 
