@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "gateway": {
-      "transport": "http",
-      "url": "http://mcp-gateway-server:3003"
+      "transport": "websocket",
+      "url": "ws://localhost:3003/ws"
     }
   }
 }
