@@ -64,11 +64,12 @@ if (!isAlreadyIntegrated) {
       dockerfile: 'Dockerfile.server'
     },
     image: 'mcp-gateway-server:latest',
-    container_name: 'mcp-gateway-server',
-    volumes: ['${CLAUDE_PROJECT_DIR}/mcp-gateway/mcp-config.json:/app/mcp-config.json:ro'],
+    container_name: 'mcp-gateway-server-${PROJECT_NAME}',
+    volumes: ['${MCP_CONFIG_PATH:-./mcp-config.json}:/app/mcp-config.json:ro'],
     environment: [
       'MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}',
-      'DOCKER_ENV=true'
+      'DOCKER_ENV=true',
+      'PORT=${MCP_API_PORT:-3003}'
     ],
     extra_hosts: ['host.docker.internal:host-gateway'],
     restart: 'unless-stopped',
@@ -82,7 +83,7 @@ if (!isAlreadyIntegrated) {
       dockerfile: 'Dockerfile.client'
     },
     image: 'mcp-gateway-client:latest',
-    container_name: 'mcp-gateway-client',
+    container_name: 'mcp-gateway-client-${PROJECT_NAME}',
     environment: [
       'API_URL=http://host.docker.internal:${MCP_API_PORT:-3003}',
       'MCP_API_PORT=${MCP_API_PORT:-3003}'
