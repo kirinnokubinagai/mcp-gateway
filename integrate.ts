@@ -7,16 +7,20 @@ import { config } from 'dotenv';
 // .envファイルを読み込み
 config();
 
-// デフォルトのdocker-compose.ymlパス
-const defaultComposePath = '~/Claude-Project/docker-compose-base.yml';
-
-// パスを解決（~をホームディレクトリに展開）
-const expandedPath = defaultComposePath.replace(/^~/, process.env.HOME!);
-const defaultPath = path.resolve(expandedPath);
-
-// コマンドライン引数を取得（オプション）
+// コマンドライン引数を取得
 const args = process.argv.slice(2);
-const composeFilePath = args.length > 0 ? path.resolve(args[0]) : defaultPath;
+if (args.length !== 1) {
+  console.error('使用方法: ./integrate.ts <docker-compose.ymlファイルのパス>');
+  console.error('例: ./integrate.ts ~/Claude-Project/docker-compose-base.yml');
+  process.exit(1);
+}
+
+const composeFilePath = path.resolve(args[0].replace(/^~/, process.env.HOME!));
+
+// 統合対象のファイルを表示
+console.log('🎯 MCP Gateway統合スクリプト');
+console.log(`📋 統合対象: ${composeFilePath}`);
+console.log('');
 
 // ファイルの存在確認
 if (!fs.existsSync(composeFilePath)) {
