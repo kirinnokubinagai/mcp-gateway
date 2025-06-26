@@ -29,4 +29,4 @@ RUN bun install
 EXPOSE 3002
 
 # Viteプレビューサーバーを起動
-CMD ["bunx", "vite", "preview", "--host", "0.0.0.0", "--port", "3002"]
+CMD ["bun", "run", "preview", "--", "--host", "0.0.0.0", "--port", "3002"]

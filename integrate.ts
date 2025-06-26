@@ -80,11 +80,12 @@ composeData.services['mcp-gateway-client'] = {
   image: 'mcp-gateway-client:latest',  // 固定イメージ名を追加
   container_name: 'mcp-gateway-client',  // 固定名に変更
   environment: [
-    'API_URL=http://localhost:${MCP_API_PORT:-3003}',
+    'API_URL=http://host.docker.internal:${MCP_API_PORT:-3003}',
     'MCP_API_PORT=${MCP_API_PORT:-3003}'
   ],
   depends_on: ['mcp-gateway-server'],
-  network_mode: 'host',  // host networkを使用
+  ports: ['${MCP_WEB_PORT:-3002}:3002'],  // ポートマッピング
+  extra_hosts: ['host.docker.internal:host-gateway'],
   restart: 'unless-stopped'
 };
 
