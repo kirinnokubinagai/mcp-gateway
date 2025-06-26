@@ -35,9 +35,10 @@ const fileContent = fs.readFileSync(composeFilePath, 'utf8');
 const composeData = yaml.load(fileContent) as any;
 
 // MCP Gatewayが既に追加されているかチェック
-if (composeData.services && composeData.services['mcp-gateway-server']) {
+const isAlreadyIntegrated = composeData.services && composeData.services['mcp-gateway-server'];
+if (isAlreadyIntegrated) {
   console.log('⚠️  MCP Gatewayは既に統合されています');
-  process.exit(0);
+  console.log('📝 .envファイルの更新を確認します...');
 }
 
 // servicesセクションがない場合は作成
@@ -159,14 +160,17 @@ if (composeData.services['claude-code']) {
   }
 }
 
-// YAMLファイルに書き込み
-const newYaml = yaml.dump(composeData, {
-  lineWidth: -1,
-  noRefs: true,
-  sortKeys: false
-});
+// 既に統合されていない場合のみYAMLファイルを更新
+if (!isAlreadyIntegrated) {
+  // YAMLファイルに書き込み
+  const newYaml = yaml.dump(composeData, {
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: false
+  });
 
-fs.writeFileSync(composeFilePath, newYaml);
+  fs.writeFileSync(composeFilePath, newYaml);
+}
 
 // .envファイルのパスを取得
 const envPath = path.join(path.dirname(composeFilePath), '.env');
@@ -235,4 +239,4 @@ console.log('   ./create-project.sh <プロジェクト名>');
 console.log('');
 console.log('3. MCP Gatewayを追加:');
 console.log('   docker exec -it claude-code-<プロジェクト名> bash');
-console.log('   claude mcp add gateway -- docker exec -i mcp-gateway-server-<プロジェクト名> bun server/index.ts');
+console.log('   claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts');

@@ -216,12 +216,12 @@ cd ~/Claude-Project
 # 2. Git Submoduleとして追加
 git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway
 
-# 3. 統合スクリプトを実行
-cd mcp-gateway
-./integrate.ts ../docker-compose-base.yml
+# 3. 依存関係インストール
+cd mcp-gateway && bun install
 
-# 4. 依存関係インストール
-bun install && cd ..
+# 4. 統合スクリプトを実行
+./integrate.ts
+cd ..
 
 # 5. プロキシサーバー起動（別ターミナル）
 cd mcp-gateway && bun run proxy
