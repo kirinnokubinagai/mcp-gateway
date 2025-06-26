@@ -60,6 +60,7 @@ composeData.services['mcp-gateway-server'] = {
     context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
     dockerfile: 'Dockerfile.server'
   },
+  image: 'mcp-gateway-server:latest',  // 固定イメージ名を追加
   container_name: 'mcp-gateway-server',  // 固定名に変更
   volumes: ['${CLAUDE_PROJECT_DIR}/mcp-gateway/mcp-config.json:/app/mcp-config.json:ro'],
   environment: [
@@ -76,6 +77,7 @@ composeData.services['mcp-gateway-client'] = {
     context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
     dockerfile: 'Dockerfile.client'
   },
+  image: 'mcp-gateway-client:latest',  // 固定イメージ名を追加
   container_name: 'mcp-gateway-client',  // 固定名に変更
   environment: ['API_URL=http://localhost:${MCP_API_PORT:-3003}'],
   depends_on: ['mcp-gateway-server'],
