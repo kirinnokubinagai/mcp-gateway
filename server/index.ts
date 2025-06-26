@@ -35,7 +35,7 @@ interface MCPClientInfo {
   error?: string;
 }
 
-const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
+const CONFIG_FILE = process.env.MCP_CONFIG_PATH || path.join(__dirname, '../mcp-config.json');
 const mcpClients = new Map<string, MCPClientInfo>();
 
 async function loadConfig(): Promise<Config> {
