@@ -106,7 +106,7 @@ if (composeData.services['claude-code']) {
     claudeCode.environment = [];
   }
   if (Array.isArray(claudeCode.environment)) {
-    const mcpGatewayUrl = 'MCP_GATEWAY_URL=http://mcp-gateway-server:3003';
+    const mcpGatewayUrl = 'MCP_GATEWAY_URL=http://mcp-gateway-server:${MCP_API_PORT:-3003}';
     if (!claudeCode.environment.some((env: string) => env.includes('MCP_GATEWAY_URL'))) {
       claudeCode.environment.push(mcpGatewayUrl);
       claudeCodeUpdated = true;
@@ -290,6 +290,12 @@ console.log('✅ MCP Gateway統合が完了しました！');
 console.log('');
 console.log(`📋 統合ファイル: ${composeFilePath}`);
 console.log(`📋 環境変数ファイル: ${envPath}`);
+console.log('');
+console.log('📝 環境変数の設定値:');
+console.log('   MCP_PROXY_PORT=9999    # MCPプロキシサーバーのポート');
+console.log('   MCP_API_PORT=3003      # MCP Gateway APIのポート');
+console.log('   MCP_WEB_PORT=3002      # MCP Gateway Web UIのポート');
+console.log('   ※ .envファイルで変更可能です');
 console.log('');
 console.log('📝 次のステップ:');
 console.log('1. プロキシサーバーを起動（別ターミナル）:');
