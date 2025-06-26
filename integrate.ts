@@ -17,6 +17,10 @@ if (args.length !== 1) {
 
 const composeFilePath = path.resolve(args[0].replace(/^~/, process.env.HOME!));
 
+// このスクリプトが実行されている場所（mcp-gateway）のパスを取得
+const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+const mcpGatewayDir = path.resolve(scriptDir);
+
 // 統合対象のファイルを表示
 console.log('🎯 MCP Gateway統合スクリプト');
 console.log(`📋 統合対象: ${composeFilePath}`);
