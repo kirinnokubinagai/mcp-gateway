@@ -18,9 +18,10 @@ FROM oven/bun:1-alpine
 
 WORKDIR /app
 
-# ビルド成果物とpackage.jsonをコピー
+# ビルド成果物と必要なファイルをコピー
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/vite.config.ts ./
 
 # viteを含む全ての依存関係をインストール
 RUN bun install
