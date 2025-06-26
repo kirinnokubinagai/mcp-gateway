@@ -121,7 +121,7 @@ cd /path/to/mcp-gateway
 bun start
 
 # 2. Claude Codeに追加（専用コンテナを使用）
-claude mcp add gateway "docker exec -i mcp-gateway-stdio bun server/index.ts"
+claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
 ```
 
 ### 方法3: 既存のプロジェクトのDockerコンテナから実行
