@@ -238,6 +238,23 @@ try {
   }
 }
 
+// mcp-config.jsonをコピー
+console.log('');
+console.log('📋 MCP設定ファイルを準備中...');
+const projectMcpConfigPath = path.join(process.env.HOME!, 'Project/mcp-gateway/mcp-config.json');
+const targetMcpConfigPath = path.join(targetDir, 'mcp-gateway/mcp-config.json');
+
+if (fs.existsSync(projectMcpConfigPath)) {
+  try {
+    fs.copyFileSync(projectMcpConfigPath, targetMcpConfigPath);
+    console.log('✅ MCP設定ファイルをコピーしました');
+  } catch (error: any) {
+    console.log('⚠️  MCP設定ファイルのコピーに失敗しました:', error.message);
+  }
+} else {
+  console.log('ℹ️  元となるMCP設定ファイルが見つかりません');
+}
+
 // .envファイルのパスを取得
 const envPath = path.join(path.dirname(composeFilePath), '.env');
 
