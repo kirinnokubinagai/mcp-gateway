@@ -164,7 +164,30 @@ MCPサーバーは3つのスコープで管理できます：
 claude mcp add -s project gateway --transport http http://mcp-gateway-server:3003
 ```
 
-## 🐳 Claude Codeとの統合（他のDockerプロジェクト）
+## 🐳 Claude-Projectとの統合
+
+詳細は[HOW_TO_INTEGRATE.md](HOW_TO_INTEGRATE.md)を参照してください。
+
+### クイック統合手順
+
+```bash
+# 1. Claude-Projectに移動
+cd ~/Claude-Project
+
+# 2. Git Submoduleとして追加
+git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway
+
+# 3. 依存関係インストール
+cd mcp-gateway && bun install && cd ..
+
+# 4. プロキシサーバー起動（別ターミナル）
+cd mcp-gateway && bun run proxy
+
+# 5. Docker Compose起動時に統合ファイルを使用
+docker compose -f docker-compose-base.yml -f mcp-gateway/claude-project-integration/docker-compose.yml up -d
+```
+
+## 🐳 その他のDockerプロジェクトとの統合
 
 ### 📋 統合の全体像
 
