@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { loadStatus, loadTools } from './status-manager.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONFIG_FILE = process.env.MCP_CONFIG_PATH || path.join(__dirname, '../mcp-config.json');
+const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
 
 // 型定義
 interface ServerConfig {
