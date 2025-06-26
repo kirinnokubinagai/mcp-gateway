@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+version: "3.8"
+
+services:
+  # === MCP Gateway 統合 ここから ===
+  
+  # 1. プロキシチェッカー（最初に実行される）
+  mcp-proxy-check:
+    image: busybox
+    command: |
+      sh -c "
+        if ! nc -z host.docker.internal 9999 2>/dev/null; then
+          echo '❌ エラー: MCPプロキシサーバーが起動していません！'
+          echo '👉 別ターミナルで以下を実行してください:'
+          echo '   cd mcp-gateway && bun run proxy'
+          exit 1
+        fi
+      "
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 2. MCP Gateway APIサーバー
+  mcp-gateway-server:
+    build:
+      context: ./mcp-gateway
+      dockerfile: Dockerfile.server
+    container_name: mcp-gateway-server
+    ports:
+      - "3003:3003"    # APIポート
+    volumes:
+      - ./mcp-gateway/mcp-config.json:/app/mcp-config.json
+    environment:
+      - MCP_PROXY_PORT=9999
+      - DOCKER_ENV=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      mcp-proxy-check:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # 3. MCP管理用Web UI（オプション）
+  mcp-gateway-client:
+    build:
+      context: ./mcp-gateway
+      dockerfile: Dockerfile.client
+    container_name: mcp-gateway-client
+    ports:
+      - "3002:3002"    # MCP管理用Web UIポート
+    environment:
+      - API_URL=http://mcp-gateway-server:3003
+    depends_on:
+      - mcp-gateway-server
+    restart: unless-stopped
+
+  # === MCP Gateway 統合 ここまで ===
+
+  # 既存のClaude Code設定に追加
+  claude-code:
+    extends:
+      file: docker-compose-base.yml
+      service: claude-code
+    environment:
+      # MCP Gateway APIを使用する場合
+      - MCP_GATEWAY_URL=http://mcp-gateway-server:3003
+    depends_on:
+      - mcp-gateway-server
+    # MCPサーバーの設定をGateway用に更新
+    volumes:
+      # 既存のvolumesに追加
+      - ./docker-base/config/mcp-servers-gateway.json:/home/developer/.config/claude/mcp-servers.json:ro

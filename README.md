@@ -577,6 +577,20 @@ bun run clean
 2. コンテナ名が正しいか確認: `docker ps`
 3. ポートが開いているか確認: `docker port mcp-gateway-server`
 
+## 🔗 Claude-Projectとの統合
+
+既存のClaude-ProjectにMCP Gatewayを統合する場合：
+
+```bash
+# ワンコマンドで統合
+./setup-claude-project.sh
+
+# または、カスタムパスを指定
+./setup-claude-project.sh /path/to/your/Claude-Project
+```
+
+詳細は[claude-project-integration/README.md](claude-project-integration/README.md)を参照してください。
+
 ## 📄 ライセンス
 
 MIT

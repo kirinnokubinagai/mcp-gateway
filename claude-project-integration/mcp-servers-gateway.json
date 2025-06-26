@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gateway": {
+      "transport": "http",
+      "url": "http://mcp-gateway-server:3003"
+    }
+  }
+}
