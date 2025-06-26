@@ -7,8 +7,8 @@ import { config } from 'dotenv';
 // .envファイルを読み込み
 config();
 
-// 環境変数から設定を取得（デフォルト値付き）
-const defaultComposePath = process.env.DEFAULT_DOCKER_COMPOSE_PATH || '~/Claude-Project/docker-compose-base.yml';
+// デフォルトのdocker-compose.ymlパス
+const defaultComposePath = '~/Claude-Project/docker-compose-base.yml';
 
 // パスを解決（~をホームディレクトリに展開）
 const expandedPath = defaultComposePath.replace(/^~/, process.env.HOME!);
