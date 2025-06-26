@@ -38,12 +38,32 @@ function App() {
     enabled: true
   })
 
+  // APIのベースURLを取得
+  const getApiBaseUrl = () => {
+    // Viteのプロキシが効く開発環境では空文字を返す
+    if (import.meta.env.DEV) {
+      return '';
+    }
+    // プロダクション環境では同じホストの3003ポートを使用
+    return `http://${window.location.hostname}:3003`;
+  };
+
+  // WebSocketのURLを取得
+  const getWsUrl = () => {
+    // プロダクション環境では同じホストの3003ポートを使用
+    if (!import.meta.env.DEV) {
+      return `ws://${window.location.hostname}:3003/ws`;
+    }
+    // 開発環境
+    return 'ws://localhost:3003/ws';
+  };
+
   useEffect(() => {
     // 初期データ読み込み
     fetchConfig()
     
     // WebSocket接続
-    const ws = new WebSocket('ws://localhost:3004')
+    const ws = new WebSocket(getWsUrl())
     
     ws.onopen = () => {
       console.log('WebSocket接続成功')
@@ -80,12 +100,12 @@ function App() {
   const fetchConfig = async () => {
     try {
       // 設定を取得
-      const configResponse = await fetch('/api/config')
+      const configResponse = await fetch(`${getApiBaseUrl()}/api/config`)
       const configData = await configResponse.json()
       setServers(configData.servers || {})
       
       // ステータスを取得
-      const statusResponse = await fetch('/api/status')
+      const statusResponse = await fetch(`${getApiBaseUrl()}/api/status`)
       if (statusResponse.ok) {
         const statusData = await statusResponse.json()
         setServerStatus(statusData)
@@ -122,7 +142,7 @@ function App() {
       
       if (editingServer) {
         // 更新モード
-        response = await fetch(`/api/servers/${editingServer}`, {
+        response = await fetch(`${getApiBaseUrl()}/api/servers/${editingServer}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -132,7 +152,7 @@ function App() {
         })
       } else {
         // 新規作成モード
-        response = await fetch(`/api/servers/${newServer.name}`, {
+        response = await fetch(`${getApiBaseUrl()}/api/servers/${newServer.name}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(serverConfig)
@@ -158,7 +178,7 @@ function App() {
 
   const handleDeleteServer = async (name: string) => {
     try {
-      const response = await fetch(`/api/servers/${name}`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/servers/${name}`, {
         method: 'DELETE'
       })
       
@@ -191,7 +211,7 @@ function App() {
 
   const handleShowTools = async (serverName: string) => {
     try {
-      const response = await fetch(`/api/servers/${serverName}/tools`)
+      const response = await fetch(`${getApiBaseUrl()}/api/servers/${serverName}/tools`)
       if (response.ok) {
         const tools = await response.json()
         setServerTools({ ...serverTools, [serverName]: tools })
