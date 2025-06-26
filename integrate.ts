@@ -39,9 +39,13 @@ const composeData = yaml.load(fileContent) as any;
 
 // MCP Gatewayが既に追加されているかチェック
 const isAlreadyIntegrated = composeData.services && composeData.services['mcp-gateway-server'];
+let servicesUpdated = false;
+
 if (isAlreadyIntegrated) {
-  console.log('⚠️  MCP Gatewayは既に統合されています');
-  console.log('📝 .envファイルの更新を確認します...');
+  console.log('⚠️  MCP Gatewayサービスは既に統合されています');
+  console.log('📝 設定の更新を確認します...');
+} else {
+  servicesUpdated = true;
 }
 
 // servicesセクションがない場合は作成
@@ -49,51 +53,51 @@ if (!composeData.services) {
   composeData.services = {};
 }
 
-// MCP Gatewayサービスを追加
-console.log('🔧 MCP Gatewayサービスを追加中...');
+// MCP Gatewayサービスを追加または更新
+if (!isAlreadyIntegrated) {
+  console.log('🔧 MCP Gatewayサービスを追加中...');
+  
+  // MCP Gateway APIサーバー
+  composeData.services['mcp-gateway-server'] = {
+    build: {
+      context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
+      dockerfile: 'Dockerfile.server'
+    },
+    image: 'mcp-gateway-server:latest',
+    container_name: 'mcp-gateway-server',
+    volumes: ['${CLAUDE_PROJECT_DIR}/mcp-gateway/mcp-config.json:/app/mcp-config.json:ro'],
+    environment: [
+      'MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}',
+      'DOCKER_ENV=true'
+    ],
+    extra_hosts: ['host.docker.internal:host-gateway'],
+    restart: 'unless-stopped',
+    network_mode: 'host'
+  };
 
-
-
-// MCP Gateway APIサーバー
-composeData.services['mcp-gateway-server'] = {
-  build: {
-    context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
-    dockerfile: 'Dockerfile.server'
-  },
-  image: 'mcp-gateway-server:latest',  // 固定イメージ名を追加
-  container_name: 'mcp-gateway-server',  // 固定名に変更
-  volumes: ['${CLAUDE_PROJECT_DIR}/mcp-gateway/mcp-config.json:/app/mcp-config.json:ro'],
-  environment: [
-    'MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}',
-    'DOCKER_ENV=true'
-  ],
-  extra_hosts: ['host.docker.internal:host-gateway'],
-  restart: 'unless-stopped'
-};
-
-// MCP管理用Web UI
-composeData.services['mcp-gateway-client'] = {
-  build: {
-    context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
-    dockerfile: 'Dockerfile.client'
-  },
-  image: 'mcp-gateway-client:latest',  // 固定イメージ名を追加
-  container_name: 'mcp-gateway-client',  // 固定名に変更
-  environment: [
-    'API_URL=http://host.docker.internal:${MCP_API_PORT:-3003}',
-    'MCP_API_PORT=${MCP_API_PORT:-3003}'
-  ],
-  depends_on: ['mcp-gateway-server'],
-  ports: ['${MCP_WEB_PORT:-3002}:3002'],  // ポートマッピング
-  extra_hosts: ['host.docker.internal:host-gateway'],
-  restart: 'unless-stopped'
-};
-
-// Claude-Projectはnetwork_mode: hostを使用
-composeData.services['mcp-gateway-server'].network_mode = 'host';
+  // MCP管理用Web UI
+  composeData.services['mcp-gateway-client'] = {
+    build: {
+      context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
+      dockerfile: 'Dockerfile.client'
+    },
+    image: 'mcp-gateway-client:latest',
+    container_name: 'mcp-gateway-client',
+    environment: [
+      'API_URL=http://host.docker.internal:${MCP_API_PORT:-3003}',
+      'MCP_API_PORT=${MCP_API_PORT:-3003}'
+    ],
+    depends_on: ['mcp-gateway-server'],
+    ports: ['${MCP_WEB_PORT:-3002}:3002'],
+    extra_hosts: ['host.docker.internal:host-gateway'],
+    restart: 'unless-stopped'
+  };
+}
 
 // claude-codeサービスを更新
 console.log('🔧 claude-codeサービスを更新中...');
+let claudeCodeUpdated = false;
+
 if (composeData.services['claude-code']) {
   const claudeCode = composeData.services['claude-code'];
   
@@ -102,8 +106,10 @@ if (composeData.services['claude-code']) {
     claudeCode.environment = [];
   }
   if (Array.isArray(claudeCode.environment)) {
-    if (!claudeCode.environment.includes('MCP_GATEWAY_URL=http://mcp-gateway-server:3003')) {
-      claudeCode.environment.push('MCP_GATEWAY_URL=http://mcp-gateway-server:3003');
+    const mcpGatewayUrl = 'MCP_GATEWAY_URL=http://mcp-gateway-server:3003';
+    if (!claudeCode.environment.some((env: string) => env.includes('MCP_GATEWAY_URL'))) {
+      claudeCode.environment.push(mcpGatewayUrl);
+      claudeCodeUpdated = true;
     }
   }
   
@@ -114,28 +120,35 @@ if (composeData.services['claude-code']) {
   if (Array.isArray(claudeCode.depends_on)) {
     if (!claudeCode.depends_on.includes('mcp-gateway-server')) {
       claudeCode.depends_on.push('mcp-gateway-server');
+      claudeCodeUpdated = true;
     }
   }
   
   // volumesに追加
   if (!claudeCode.volumes) {
     claudeCode.volumes = [];
+    claudeCodeUpdated = true;
   }
   const mcpConfigVolume = '${CLAUDE_PROJECT_DIR}/mcp-gateway/claude-project-integration/mcp-servers-gateway.json:/home/developer/.config/claude/mcp-servers.json:ro';
-  if (!claudeCode.volumes.includes(mcpConfigVolume)) {
+  if (!claudeCode.volumes.some((vol: string) => vol.includes('mcp-servers-gateway.json'))) {
     claudeCode.volumes.push(mcpConfigVolume);
+    claudeCodeUpdated = true;
   }
 }
 
-// YAMLファイルに書き込み（常に更新して固定名を確実に適用）
-const newYaml = yaml.dump(composeData, {
-  lineWidth: -1,
-  noRefs: true,
-  sortKeys: false
-});
+// 変更があった場合のみYAMLファイルを更新
+if (servicesUpdated || claudeCodeUpdated) {
+  const newYaml = yaml.dump(composeData, {
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: false
+  });
 
-fs.writeFileSync(composeFilePath, newYaml);
-console.log('✅ Docker Composeファイルを更新しました');
+  fs.writeFileSync(composeFilePath, newYaml);
+  console.log('✅ Docker Composeファイルを更新しました');
+} else {
+  console.log('ℹ️  Docker Composeファイルは既に最新です');
+}
 
 // git submodule として mcp-gateway を追加
 const targetDir = path.dirname(composeFilePath);
@@ -145,17 +158,31 @@ console.log('🔧 mcp-gatewayをgit submoduleとして追加中...');
 // 対象ディレクトリに移動してgit submodule add を実行
 const { execSync } = require('child_process');
 try {
-  // 既にサブモジュールが存在するかチェック
+  // 既にサブモジュールが存在するかチェック（複数の方法で確認）
   const gitmodulesPath = path.join(targetDir, '.gitmodules');
+  const mcpGatewayPath = path.join(targetDir, 'mcp-gateway');
   let isSubmoduleExists = false;
+  let isDirectoryExists = fs.existsSync(mcpGatewayPath);
   
+  // .gitmodulesファイルでチェック
   if (fs.existsSync(gitmodulesPath)) {
     const gitmodulesContent = fs.readFileSync(gitmodulesPath, 'utf8');
     isSubmoduleExists = gitmodulesContent.includes('[submodule "mcp-gateway"]');
   }
   
-  if (!isSubmoduleExists) {
+  // git submodule statusでもチェック
+  try {
+    const submoduleStatus = execSync('git submodule status', { cwd: targetDir, encoding: 'utf8' });
+    if (submoduleStatus.includes('mcp-gateway')) {
+      isSubmoduleExists = true;
+    }
+  } catch (e) {
+    // git submodule statusが失敗しても続行
+  }
+  
+  if (!isSubmoduleExists && !isDirectoryExists) {
     // サブモジュールを追加
+    console.log('📦 新規にmcp-gatewayサブモジュールを追加します...');
     execSync('git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway', {
       cwd: targetDir,
       stdio: 'inherit'
@@ -168,7 +195,12 @@ try {
       stdio: 'inherit'
     });
     console.log('✅ サブモジュールを初期化しました');
+  } else if (isDirectoryExists && !isSubmoduleExists) {
+    // ディレクトリは存在するがサブモジュールではない場合
+    console.log('⚠️  mcp-gatewayディレクトリが既に存在しますが、サブモジュールではありません');
+    console.log('📝 既存のディレクトリを使用して続行します');
   } else {
+    // サブモジュールが既に存在する場合
     console.log('ℹ️  mcp-gatewayは既にサブモジュールとして存在します');
     // 既存のサブモジュールを最新に更新
     execSync('git submodule update --init --recursive', {
@@ -178,11 +210,31 @@ try {
     console.log('✅ サブモジュールを更新しました');
   }
 } catch (error: any) {
-  console.error('⚠️  git submodule追加中にエラーが発生しました:', error.message);
-  console.log('手動で以下のコマンドを実行してください:');
-  console.log(`cd ${targetDir}`);
-  console.log('git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway');
-  console.log('git submodule update --init --recursive');
+  // エラーメッセージを詳細に解析
+  if (error.message.includes('already exists in the index')) {
+    console.log('ℹ️  mcp-gatewayは既にgitインデックスに登録されています');
+    try {
+      execSync('git submodule update --init --recursive', {
+        cwd: targetDir,
+        stdio: 'inherit'
+      });
+      console.log('✅ サブモジュールを更新しました');
+    } catch (updateError) {
+      console.error('⚠️  サブモジュール更新中にエラーが発生しました');
+    }
+  } else if (error.message.includes('already exists and is not a valid git repo')) {
+    console.error('⚠️  mcp-gatewayディレクトリが存在しますが、有効なgitリポジトリではありません');
+    console.log('📝 手動で以下のコマンドを実行してください:');
+    console.log(`cd ${targetDir}`);
+    console.log('rm -rf mcp-gateway');
+    console.log('git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway');
+  } else {
+    console.error('⚠️  git submodule追加中にエラーが発生しました:', error.message);
+    console.log('📝 手動で以下のコマンドを実行してください:');
+    console.log(`cd ${targetDir}`);
+    console.log('git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway');
+    console.log('git submodule update --init --recursive');
+  }
 }
 
 // .envファイルのパスを取得
