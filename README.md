@@ -178,6 +178,29 @@ claude mcp add -s project gateway --transport http http://mcp-gateway-server:300
     └── ...
 ```
 
+### 🚀 統合方法
+
+#### 方法1: ワンコマンド統合（推奨）
+
+MCP Gatewayディレクトリから実行：
+
+```bash
+# integrate.shスクリプトを使用
+./integrate.sh [Claude-Projectパス] [docker-compose.ymlファイル名]
+
+# 例
+./integrate.sh ~/Claude-Project docker-compose-base.yml
+```
+
+このコマンドが自動的に実行すること：
+1. Git SubmoduleとしてMCP Gatewayを追加
+2. 依存関係（`bun install`）をインストール
+3. プロキシサーバーをバックグラウンドで起動
+4. Docker Compose拡張ファイルを使用して統合環境を起動
+5. Claude Code内のMCP設定をGateway用に自動切り替え
+
+#### 方法2: 手動統合
+
 ### 🚀 ステップバイステップガイド
 
 #### Step 1: MCP Gatewayを取得

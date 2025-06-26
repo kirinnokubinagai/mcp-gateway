@@ -21,13 +21,13 @@ services:
   # MCP Gateway APIサーバー
   mcp-gateway-server:
     build:
-      context: ./mcp-gateway
+      context: .
       dockerfile: Dockerfile.server
     container_name: mcp-gateway-server
     ports:
       - "${MCP_API_PORT:-3003}:3003"
     volumes:
-      - ./mcp-gateway/mcp-config.json:/app/mcp-config.json
+      - ./mcp-config.json:/app/mcp-config.json
     environment:
       - MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
       - DOCKER_ENV=true
@@ -41,7 +41,7 @@ services:
   # MCP管理用Web UI（オプション）
   mcp-gateway-client:
     build:
-      context: ./mcp-gateway
+      context: .
       dockerfile: Dockerfile.client
     container_name: mcp-gateway-client
     ports:
@@ -60,4 +60,4 @@ services:
       - mcp-gateway-server
     volumes:
       # MCP設定をGateway用に更新（既存のvolumesに追加される）
-      - ./docker-base/config/mcp-servers-gateway.json:/home/developer/.config/claude/mcp-servers.json:ro
+      - ./claude-project-integration/mcp-servers-gateway.json:/home/developer/.config/claude/mcp-servers.json:ro
