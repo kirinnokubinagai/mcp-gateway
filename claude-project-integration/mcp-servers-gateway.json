@@ -2,7 +2,7 @@
   "mcpServers": {
     "gateway": {
       "transport": "http",
-      "url": "http://mcp-gateway-server:3003"
+      "url": "http://localhost:3003"
     }
   }
 }
