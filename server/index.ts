@@ -22,7 +22,7 @@ interface ServerConfig {
 }
 
 interface Config {
-  servers: Record<string, ServerConfig>;
+  mcpServers: Record<string, ServerConfig>;
 }
 
 interface MCPClientInfo {
@@ -43,7 +43,7 @@ async function loadConfig(): Promise<Config> {
     const data = await fs.readFile(CONFIG_FILE, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
-    const defaultConfig: Config = { servers: {} };
+    const defaultConfig: Config = { mcpServers: {} };
     await fs.writeFile(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
     return defaultConfig;
   }
@@ -323,7 +323,7 @@ async function disconnectFromMCPServer(name: string) {
 async function syncWithConfig() {
   const config = await loadConfig();
   const currentServers = new Set(mcpClients.keys());
-  const configServers = new Set(Object.keys(config.servers));
+  const configServers = new Set(Object.keys(config.mcpServers));
   
   const disconnectPromises = [];
   for (const name of currentServers) {
@@ -335,7 +335,7 @@ async function syncWithConfig() {
   
   const connectionPromises = [];
   
-  for (const [name, serverConfig] of Object.entries(config.servers)) {
+  for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
     const currentClient = mcpClients.get(name);
     
     if (!serverConfig.enabled && currentClient) {
