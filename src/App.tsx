@@ -102,7 +102,7 @@ function App() {
       // 設定を取得
       const configResponse = await fetch(`${getApiBaseUrl()}/api/config`)
       const configData = await configResponse.json()
-      setServers(configData.servers || {})
+      setServers(configData.mcpServers || configData.servers || {})
       
       // ステータスを取得
       const statusResponse = await fetch(`${getApiBaseUrl()}/api/status`)
