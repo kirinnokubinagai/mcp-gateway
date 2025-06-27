@@ -3,5 +3,40 @@
     "enabled": true,
     "status": "connected",
     "toolCount": 2
+  },
+  "blender": {
+    "enabled": true,
+    "status": "connected",
+    "toolCount": 17
+  },
+  "supabase": {
+    "enabled": true,
+    "status": "connected",
+    "toolCount": 28
+  },
+  "stripe": {
+    "enabled": true,
+    "status": "connected",
+    "toolCount": 21
+  },
+  "magic-mcp": {
+    "enabled": true,
+    "status": "connected",
+    "toolCount": 4
+  },
+  "line-bot": {
+    "enabled": true,
+    "status": "connected",
+    "toolCount": 10
+  },
+  "obsidian": {
+    "enabled": true,
+    "status": "connected",
+    "toolCount": 12
+  },
+  "playwright": {
+    "enabled": true,
+    "status": "connected",
+    "toolCount": 25
   }
 }

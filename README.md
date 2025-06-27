@@ -38,59 +38,48 @@ Web UI（http://localhost:3002）でMCPサーバーが「エラー」と表示�
 
 ## 🚀 クイックスタート
 
+### 1. プロキシサーバーを起動（別ターミナルで）
 ```bash
 # 依存関係のインストール
 bun install
 
-# Claude Desktop用（プロキシサーバーとGatewayを起動）
-bun run mcp
+# プロキシサーバーを起動
+bun run proxy
+```
 
-# MCP管理用Web UI付きで起動（Docker使用）
-bun start
-
-# 開発モード
-bun run dev
+### 2. Docker Composeで起動
+```bash
+# MCP GatewayサーバーとWeb UIを起動
+docker-compose up
 ```
 
 ### 📌 動作ポート
 
 - **プロキシサーバー**: ws://localhost:9999
 - **APIサーバー**: http://localhost:3003
-- **MCP管理用Web UI**: http://localhost:3002 （`bun start`時のみ）
+- **MCP管理用Web UI**: http://localhost:3002
 
 ## 🤖 Claude Desktopでの使用
 
-### 1. 依存関係のインストール
-
-```bash
-bun install
-```
+### 1. 上記の手順でプロキシサーバーとDocker Composeを起動
 
 ### 2. Claude Desktopへの設定
 
 Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/claude_desktop_config.json`）に以下を追加：
 
-#### 基本設定（推奨）
 ```json
 {
+  "globalShortcut": "Shift+Alt+Space",
   "mcpServers": {
     "gateway": {
-      "command": "bun",
-      "args": ["run", "mcp"],
-      "cwd": "/path/to/mcp-gateway"
-    }
-  }
-}
-```
-
-#### MCP管理用Web UIなしで起動（リソース節約）
-```json
-{
-  "mcpServers": {
-    "gateway": {
-      "command": "bun",
-      "args": ["run", "mcp:no-ui"],
-      "cwd": "/path/to/mcp-gateway"
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "shared-mcp-gateway-server",
+        "bun",
+        "server/index.ts"
+      ]
     }
   }
 }
@@ -98,49 +87,25 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 
 **重要**: 
 - Gateway MCPを使用する場合、個別のMCPサーバー（obsidian、context7など）の設定は削除してください
-- `bun run mcp`はシンプルな起動コマンドで、MCP管理用Web UIは含まれません
-- MCP管理用Web UIが必要な場合は`bun start`を使用してください
+- コンテナ名は`shared-mcp-gateway-server`で固定されています
 
 ## 🤖 Claude Codeでの使用
 
-Claude CodeでMCP Gatewayを使用するには、以下の方法があります：
+### 1. 上記の手順でプロキシサーバーとDocker Composeを起動
 
-### 方法1: ローカル実行（推奨）
-
-```bash
-# 1. プロキシサーバーを起動（別ターミナル）
-cd /path/to/mcp-gateway
-bun run proxy
-
-# 2. Claude Codeに追加
-claude mcp add gateway /path/to/mcp-gateway/start-mcp-for-claude.sh
-```
-
-### 方法2: Docker経由での実行
+### 2. Claude Codeに登録
 
 ```bash
-# 1. Docker Composeを起動
-cd /path/to/mcp-gateway
-bun start
+# Claude Codeコンテナ内で実行
+claude mcp add -s user gateway -- docker exec -i shared-mcp-gateway-server bun server/index.ts
 
-# 2. Claude Codeに追加（専用コンテナを使用）
-claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
-```
-
-### 方法3: 既存のプロジェクトのDockerコンテナから実行
-
-既存のプロジェクトでMCP Gatewayが起動している場合：
-
-```bash
-# プロジェクトのディレクトリで確認
-docker ps | grep mcp-gateway
-
-# Claude Codeに追加（固定コンテナ名を使用）
-claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
+# 確認
+claude mcp list
 ```
 
 **注意**: 
-- Docker経由で実行する場合、プロキシサーバーが起動している必要があります
+- `-s user`オプションでユーザースコープに登録されます
+- コンテナ名は`shared-mcp-gateway-server`で固定されています
 - `--`を忘れずに付けてください（`claude mcp add`のオプションとコマンドを区別するため）
 
 ## 🤖 Claude Code（Docker版）でのMCP追加方法
