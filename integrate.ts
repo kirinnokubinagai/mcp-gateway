@@ -160,30 +160,34 @@ const targetDir = path.dirname(composeFilePath);
 console.log('');
 console.log('🔧 mcp-gatewayをgit submoduleとして追加中...');
 
-// 対象ディレクトリに移動してgit submodule add を実行
-const { execSync } = require('child_process');
-try {
-  // 既にサブモジュールが存在するかチェック（複数の方法で確認）
-  const gitmodulesPath = path.join(targetDir, '.gitmodules');
-  const mcpGatewayPath = path.join(targetDir, 'mcp-gateway');
-  let isSubmoduleExists = false;
-  let isDirectoryExists = fs.existsSync(mcpGatewayPath);
-  
-  // .gitmodulesファイルでチェック
-  if (fs.existsSync(gitmodulesPath)) {
-    const gitmodulesContent = fs.readFileSync(gitmodulesPath, 'utf8');
-    isSubmoduleExists = gitmodulesContent.includes('[submodule "mcp-gateway"]');
-  }
-  
-  // git submodule statusでもチェック
+// mcp-gateway内で実行されている場合はスキップ
+if (targetDir.includes('/mcp-gateway')) {
+  console.log('⚠️  mcp-gateway内で実行されているため、サブモジュール追加をスキップします');
+} else {
+  // 対象ディレクトリに移動してgit submodule add を実行
+  const { execSync } = require('child_process');
   try {
-    const submoduleStatus = execSync('git submodule status', { cwd: targetDir, encoding: 'utf8' });
-    if (submoduleStatus.includes('mcp-gateway')) {
-      isSubmoduleExists = true;
+    // 既にサブモジュールが存在するかチェック（複数の方法で確認）
+    const gitmodulesPath = path.join(targetDir, '.gitmodules');
+    const mcpGatewayPath = path.join(targetDir, 'mcp-gateway');
+    let isSubmoduleExists = false;
+    let isDirectoryExists = fs.existsSync(mcpGatewayPath);
+    
+    // .gitmodulesファイルでチェック
+    if (fs.existsSync(gitmodulesPath)) {
+      const gitmodulesContent = fs.readFileSync(gitmodulesPath, 'utf8');
+      isSubmoduleExists = gitmodulesContent.includes('[submodule "mcp-gateway"]');
     }
-  } catch (e) {
-    // git submodule statusが失敗しても続行
-  }
+    
+    // git submodule statusでもチェック
+    try {
+      const submoduleStatus = execSync('git submodule status', { cwd: targetDir, encoding: 'utf8' });
+      if (submoduleStatus.includes('mcp-gateway')) {
+        isSubmoduleExists = true;
+      }
+    } catch (e) {
+      // git submodule statusが失敗しても続行
+    }
   
   if (!isSubmoduleExists && !isDirectoryExists) {
     // サブモジュールを追加
@@ -240,6 +244,7 @@ try {
     console.log('git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gateway');
     console.log('git submodule update --init --recursive');
   }
+}
 }
 
 // mcp-config.jsonのコピーは行わない（各プロジェクトで個別に管理）
