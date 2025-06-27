@@ -40,6 +40,7 @@ Bun.serve({
   
   fetch(req, server) {
     // WebSocketアップグレード
+    console.log(`📡 リクエスト受信: ${req.method} ${req.url}`);
     if (server.upgrade(req)) {
       return; // WebSocketハンドラーで処理
     }

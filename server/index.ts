@@ -7,43 +7,33 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { saveStatus, saveTools } from './status-manager.js';
+import { saveStatus, saveTools, classifyError } from './status-manager.js';
 import { WebSocketTransport } from './websocket-transport.js';
+import { validateCommand } from './command-validator.js';
+import { 
+  CONFIG_FILE, 
+  SERVER_CONFIG, 
+  WEBSOCKET_CONFIG, 
+  TIMEOUT_CONFIG, 
+  ERROR_MESSAGES,
+  STATUS,
+  StatusType
+} from './constants.js';
+import { ServerConfig, Config, MCPClientInfo } from './types.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-interface ServerConfig {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-  enabled: boolean;
-}
-
-interface Config {
-  servers: Record<string, ServerConfig>;
-}
-
-interface MCPClientInfo {
-  client?: Client;
-  transport?: WebSocketTransport | StdioClientTransport;
-  config: ServerConfig;
-  tools?: any[];
-  toolMapping?: Map<string, string>;
-  status: 'connected' | 'error' | 'disabled' | 'updating';
-  error?: string;
-}
-
-const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
 const mcpClients = new Map<string, MCPClientInfo>();
 
 async function loadConfig(): Promise<Config> {
   try {
     const data = await fs.readFile(CONFIG_FILE, 'utf-8');
-    return JSON.parse(data);
+    const parsedData = JSON.parse(data);
+    // 既存の設定ファイルとの互換性を保つ
+    if (parsedData.mcpServers) {
+      return { mcpServers: parsedData.mcpServers };
+    }
+    return { mcpServers: {} };
   } catch (error) {
-    const defaultConfig: Config = { servers: {} };
+    const defaultConfig: Config = { mcpServers: {} };
     await fs.writeFile(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
     return defaultConfig;
   }
@@ -71,12 +61,18 @@ async function updateServerStatus() {
   const allTools: Record<string, any[]> = {};
   
   for (const [serverName, client] of mcpClients.entries()) {
-    status[serverName] = {
+    const statusEntry: any = {
       enabled: client.config.enabled,
       status: client.status,
       toolCount: client.tools?.length || 0,
       error: client.error
     };
+    
+    if (client.error && client.status === STATUS.ERROR) {
+      statusEntry.errorType = classifyError(client.error);
+    }
+    
+    status[serverName] = statusEntry;
     
     if (client.tools) {
       allTools[serverName] = client.tools;
@@ -89,11 +85,9 @@ async function updateServerStatus() {
 
 async function connectToMCPServer(name: string, config: ServerConfig) {
   try {
-    console.error(`MCPサーバーに接続中: ${name}`);
-    
     mcpClients.set(name, {
       config,
-      status: 'updating'
+      status: STATUS.UPDATING
     });
     await updateServerStatus();
     
@@ -103,14 +97,26 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       env: expandEnvVariables(config.env || {})
     };
     
+    const validation = await validateCommand(expandedConfig.command, expandedConfig.args);
+    if (!validation.valid) {
+      const errorMessage = validation.errorMessage || ERROR_MESSAGES.COMMAND_VALIDATION_FAILED;
+      
+      mcpClients.set(name, {
+        config,
+        status: STATUS.ERROR,
+        error: errorMessage
+      });
+      
+      await updateServerStatus();
+      
+      return { success: false, error: errorMessage };
+    }
+    
     let transport;
     
-    const proxyPort = process.env.MCP_PROXY_PORT || '9999';
-    const proxyHost = process.env.DOCKER_ENV ? 'host.docker.internal' : 'localhost';
-    const proxyUrl = process.env.MCP_PROXY_URL || `ws://${proxyHost}:${proxyPort}`;
+    const proxyUrl = WEBSOCKET_CONFIG.PROXY_URL;
     
     if (proxyUrl) {
-      console.error(`WebSocketプロキシ経由で接続: ${proxyUrl}`);
       transport = new WebSocketTransport({
         url: proxyUrl,
         command: expandedConfig.command,
@@ -135,23 +141,20 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     );
     
     await client.connect(transport);
-    console.error(`${name}: 接続完了`);
     
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, TIMEOUT_CONFIG.INITIAL_WAIT));
     
     let tools: any[] = [];
     const toolMapping = new Map<string, string>();
     
     try {
-      console.error(`${name}のツールリストを取得中...`);
       const response = await Promise.race([
         client.listTools(),
         new Promise<any>((_, reject) => 
-          setTimeout(() => reject(new Error('ツールリスト取得タイムアウト')), 10000)
+          setTimeout(() => reject(new Error(ERROR_MESSAGES.TIMEOUT_TOOL_LIST)), TIMEOUT_CONFIG.TOOL_LIST)
         )
       ]);
       tools = response.tools || [];
-      console.error(`${name}のツール取得成功: ${tools.length}個`);
       
       tools.forEach(tool => {
         const gatewayToolName = tool.name.startsWith(`${name}_`) 
@@ -159,7 +162,6 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
           : `${name}_${tool.name}`;
         
         toolMapping.set(gatewayToolName, tool.name);
-        console.error(`  ツール: ${tool.name} -> ${gatewayToolName}`);
       });
     } catch (error) {
       console.error(`ツールリスト取得エラー ${name}:`, error);
@@ -171,17 +173,16 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       config,
       tools,
       toolMapping,
-      status: 'connected'
+      status: STATUS.CONNECTED
     });
     
     await updateServerStatus();
     
     return { success: true, tools };
   } catch (error) {
-    console.error(`接続失敗 ${name}:`, error);
     mcpClients.set(name, {
       config,
-      status: 'error',
+      status: STATUS.ERROR,
       error: (error as Error).message
     });
     
@@ -193,22 +194,19 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
 
 const mcpServer = new Server(
   {
-    name: "mcp-gateway",
-    version: "3.0.0",
+    name: SERVER_CONFIG.NAME,
+    version: SERVER_CONFIG.VERSION,
   },
   {
-    capabilities: {
-      tools: {},
-    },
+    capabilities: SERVER_CONFIG.CAPABILITIES,
   }
 );
 
 mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
-  console.error(`\n=== ツールリストのリクエスト受信 ===`);
   const tools: any[] = [];
   
   for (const [serverName, client] of mcpClients.entries()) {
-    if (client.status === 'connected' && client.tools) {
+    if (client.status === STATUS.CONNECTED && client.tools) {
       for (const tool of client.tools) {
         const gatewayToolName = tool.name.startsWith(`${serverName}_`) 
           ? tool.name 
@@ -229,14 +227,11 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
     inputSchema: { type: "object", properties: {} }
   });
   
-  console.error(`合計ツール数: ${tools.length}`);
   return { tools };
 });
 
 mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  
-  console.error(`\n=== ツール実行: ${name} ===`);
   
   if (name === "gateway_list_servers") {
     const config = await loadConfig();
@@ -244,7 +239,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     for (const [serverName, client] of mcpClients.entries()) {
       status[serverName] = {
-        enabled: config.servers[serverName]?.enabled || false,
+        enabled: config.mcpServers[serverName]?.enabled || false,
         status: client.status,
         toolCount: client.tools?.length || 0,
         error: client.error
@@ -261,14 +256,14 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   
   const separatorIndex = name.indexOf('_');
   if (separatorIndex === -1) {
-    throw new Error(`不正なツール名形式: ${name}`);
+    throw new Error(`${ERROR_MESSAGES.INVALID_TOOL_NAME}: ${name}`);
   }
   
   const serverName = name.substring(0, separatorIndex);
   const client = mcpClients.get(serverName);
   
-  if (!client || client.status !== 'connected' || !client.client) {
-    throw new Error(`サーバー ${serverName} は接続されていません`);
+  if (!client || client.status !== STATUS.CONNECTED || !client.client) {
+    throw new Error(`${ERROR_MESSAGES.SERVER_NOT_CONNECTED}: ${serverName}`);
   }
   
   let originalToolName: string;
@@ -291,7 +286,6 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     return result;
   } catch (error) {
-    console.error(`ツール実行エラー (${name}):`, (error as Error).message);
     return {
       content: [{
         type: "text",
@@ -305,7 +299,6 @@ async function disconnectFromMCPServer(name: string) {
   const clientInfo = mcpClients.get(name);
   if (clientInfo && clientInfo.client) {
     try {
-      console.error(`MCPサーバーから切断中: ${name}`);
       await clientInfo.client.close();
       
       if (clientInfo.transport && 'close' in clientInfo.transport) {
@@ -313,7 +306,6 @@ async function disconnectFromMCPServer(name: string) {
       }
       
       mcpClients.delete(name);
-      console.error(`${name}: 切断完了`);
     } catch (error) {
       console.error(`切断エラー ${name}:`, error);
     }
@@ -323,7 +315,7 @@ async function disconnectFromMCPServer(name: string) {
 async function syncWithConfig() {
   const config = await loadConfig();
   const currentServers = new Set(mcpClients.keys());
-  const configServers = new Set(Object.keys(config.servers));
+  const configServers = new Set(Object.keys(config.mcpServers));
   
   const disconnectPromises = [];
   for (const name of currentServers) {
@@ -335,7 +327,7 @@ async function syncWithConfig() {
   
   const connectionPromises = [];
   
-  for (const [name, serverConfig] of Object.entries(config.servers)) {
+  for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
     const currentClient = mcpClients.get(name);
     
     if (!serverConfig.enabled && currentClient) {
@@ -362,11 +354,21 @@ async function syncWithConfig() {
 }
 
 async function startConfigSync() {
+  if (process.env.DOCKER_ENV) {
+    setInterval(async () => {
+      try {
+        await syncWithConfig();
+      } catch (error) {
+        console.error("設定同期エラー:", error);
+      }
+    }, TIMEOUT_CONFIG.SYNC_INTERVAL);
+    return;
+  }
+
   try {
     const { watch } = await import('fs');
     watch(CONFIG_FILE, async (eventType) => {
       if (eventType === 'change') {
-        console.error("設定ファイル変更を検知");
         setTimeout(async () => {
           try {
             await syncWithConfig();
@@ -376,28 +378,36 @@ async function startConfigSync() {
         }, 100);
       }
     });
-    
-    console.error("設定ファイル監視を開始");
   } catch (error) {
-    console.error("ファイル監視のセットアップに失敗、ポーリングにフォールバック:", error);
     setInterval(async () => {
       try {
         await syncWithConfig();
       } catch (error) {
         console.error("設定同期エラー:", error);
       }
-    }, 5000);
+    }, TIMEOUT_CONFIG.SYNC_INTERVAL);
   }
 }
 
 async function main() {
-  console.error("MCP Gateway Server 起動中...");
+  const { spawn } = await import('child_process');
+  const webServerProcess = spawn('bun', ['server/web-server.ts'], {
+    cwd: '/app',
+    env: process.env,
+    stdio: 'inherit'
+  });
+  
+  webServerProcess.on('error', (error) => {
+    console.error('Web server error:', error);
+  });
+  
+  await new Promise(resolve => setTimeout(resolve, TIMEOUT_CONFIG.INITIAL_WAIT));
   
   try {
     await Promise.race([
       syncWithConfig(),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('初回接続タイムアウト')), 30000)
+        setTimeout(() => reject(new Error(ERROR_MESSAGES.TIMEOUT_INITIAL_CONNECTION)), TIMEOUT_CONFIG.INITIAL_CONNECTION)
       )
     ]);
   } catch (error) {
@@ -410,8 +420,6 @@ async function main() {
   startConfigSync().catch(error => {
     console.error("設定同期エラー:", error);
   });
-  
-  console.error("MCP Gateway Server 起動完了");
 }
 
 main().catch((error) => {

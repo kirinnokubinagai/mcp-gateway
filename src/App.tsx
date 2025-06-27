@@ -20,7 +20,24 @@ interface ServerStatus {
   status: 'connected' | 'error' | 'disabled' | 'updating'
   toolCount: number
   error?: string
+  errorType?: 'connection' | 'timeout' | 'not_found' | 'command' | 'auth' | 'unknown'
 }
+
+const STATUS_COLORS = {
+  disabled: { bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' },
+  connected: { bg: 'bg-green-100', text: 'text-green-700', dot: 'bg-green-500' },
+  updating: { bg: 'bg-yellow-100', text: 'text-yellow-700', dot: 'bg-yellow-500 animate-pulse' },
+  error: { bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-500' }
+} as const
+
+const ERROR_ICONS = {
+  connection: '🔌 接続エラー',
+  timeout: '⏱️ タイムアウト',
+  not_found: '❓ パッケージが見つかりません',
+  command: '⚠️ コマンドエラー',
+  auth: '🔐 認証エラー',
+  unknown: '❌ エラー'
+} as const
 
 function App() {
   const [servers, setServers] = useState<Record<string, ServerConfig>>({})
@@ -38,42 +55,34 @@ function App() {
     enabled: true
   })
 
-  // APIのベースURLを取得
   const getApiBaseUrl = () => {
-    // Viteのプロキシが効く開発環境では空文字を返す
     if (import.meta.env.DEV) {
       return '';
     }
-    // プロダクション環境では同じホストの3003ポートを使用
-    return `http://${window.location.hostname}:3003`;
+    const apiPort = import.meta.env.VITE_MCP_API_PORT || '3003';
+    return `http://${window.location.hostname}:${apiPort}`;
   };
 
-  // WebSocketのURLを取得
   const getWsUrl = () => {
-    // プロダクション環境では同じホストの3003ポートを使用
+    const apiPort = import.meta.env.VITE_MCP_API_PORT || '3003';
     if (!import.meta.env.DEV) {
-      return `ws://${window.location.hostname}:3003/ws`;
+      return `ws://${window.location.hostname}:${apiPort}/ws`;
     }
-    // 開発環境
-    return 'ws://localhost:3003/ws';
+    return `ws://localhost:${apiPort}/ws`;
   };
 
   useEffect(() => {
-    // 初期データ読み込み
     fetchConfig()
     
-    // WebSocket接続
     const ws = new WebSocket(getWsUrl())
-    
-    ws.onopen = () => {
-      console.log('WebSocket接続成功')
-    }
     
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data)
         if (message.type === 'status') {
           setServerStatus(message.data)
+        } else if (message.type === 'config') {
+          setServers(message.data.mcpServers || {})
         }
       } catch (error) {
         console.error('WebSocketメッセージエラー:', error)
@@ -84,11 +93,6 @@ function App() {
       console.error('WebSocketエラー:', error)
     }
     
-    ws.onclose = () => {
-      console.log('WebSocket切断')
-    }
-    
-    // 定期的に設定を更新（フォールバック）
     const interval = setInterval(fetchConfig, 30000)
     
     return () => {
@@ -99,12 +103,10 @@ function App() {
 
   const fetchConfig = async () => {
     try {
-      // 設定を取得
       const configResponse = await fetch(`${getApiBaseUrl()}/api/config`)
       const configData = await configResponse.json()
-      setServers(configData.servers || {})
+      setServers(configData.mcpServers || {})
       
-      // ステータスを取得
       const statusResponse = await fetch(`${getApiBaseUrl()}/api/status`)
       if (statusResponse.ok) {
         const statusData = await statusResponse.json()
@@ -141,7 +143,6 @@ function App() {
       let response;
       
       if (editingServer) {
-        // 更新モード
         response = await fetch(`${getApiBaseUrl()}/api/servers/${editingServer}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -151,7 +152,6 @@ function App() {
           })
         })
       } else {
-        // 新規作成モード
         response = await fetch(`${getApiBaseUrl()}/api/servers/${newServer.name}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -242,16 +242,16 @@ function App() {
                       <div className="flex items-center justify-between">
                         <CardTitle>{name}</CardTitle>
                         <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
-                          !config.enabled ? 'bg-gray-100 text-gray-600' :
-                          status.status === 'connected' ? 'bg-green-100 text-green-700' :
-                          status.status === 'updating' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-red-100 text-red-700'
+                          !config.enabled ? STATUS_COLORS.disabled.bg + ' ' + STATUS_COLORS.disabled.text :
+                          status.status === 'connected' ? STATUS_COLORS.connected.bg + ' ' + STATUS_COLORS.connected.text :
+                          status.status === 'updating' ? STATUS_COLORS.updating.bg + ' ' + STATUS_COLORS.updating.text :
+                          STATUS_COLORS.error.bg + ' ' + STATUS_COLORS.error.text
                         }`}>
                           <div className={`w-2 h-2 rounded-full ${
-                            !config.enabled ? 'bg-gray-400' :
-                            status.status === 'connected' ? 'bg-green-500' :
-                            status.status === 'updating' ? 'bg-yellow-500 animate-pulse' :
-                            'bg-red-500'
+                            !config.enabled ? STATUS_COLORS.disabled.dot :
+                            status.status === 'connected' ? STATUS_COLORS.connected.dot :
+                            status.status === 'updating' ? STATUS_COLORS.updating.dot :
+                            STATUS_COLORS.error.dot
                           }`} />
                           {!config.enabled ? '無効' :
                            status.status === 'connected' ? '接続中' : 
@@ -272,9 +272,14 @@ function App() {
                         </p>
                       )}
                       {status.error && (
-                        <p className="text-sm text-red-600 mb-3">
-                          {status.error}
-                        </p>
+                        <div className="mb-3">
+                          <p className="text-sm text-red-600 flex items-center gap-1">
+                            {ERROR_ICONS[status.errorType || 'unknown']}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1 break-all">
+                            {status.error}
+                          </p>
+                        </div>
                       )}
                       <div className="flex gap-2">
                         <Button size="sm" variant="outline" onClick={() => handleEditServer(name)}>
@@ -373,7 +378,6 @@ function App() {
                 </DialogContent>
               </Dialog>
 
-              {/* ツール一覧ダイアログ */}
               <Dialog open={toolsDialogOpen !== null} onOpenChange={(open) => {
                 if (!open) setToolsDialogOpen(null)
               }}>

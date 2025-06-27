@@ -25,26 +25,32 @@ export class WebSocketTransport implements Transport {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(this.options.url);
       
-      // タイムアウト設定（10秒）
+      // タイムアウト設定（30秒）
       const timeout = setTimeout(() => {
-        reject(new Error('WebSocket connection timeout after 10s'));
-      }, 10000);
+        reject(new Error('WebSocket connection timeout after 30s'));
+      }, 30000);
+      
+      console.error(`WebSocket接続開始: ${this.options.url}`);
       
       this.ws.addEventListener('open', () => {
         clearTimeout(timeout);
+        console.error('WebSocket接続成功');
         
         // 初期化メッセージを送信
-        this.ws!.send(JSON.stringify({
+        const initMessage = {
           type: 'init',
           command: this.options.command,
           args: this.options.args,
           env: this.options.env
-        }));
+        };
+        console.error('初期化メッセージを送信:', JSON.stringify(initMessage));
+        this.ws!.send(JSON.stringify(initMessage));
       });
 
       this.ws.addEventListener('message', (event) => {
         try {
           const message = JSON.parse(event.data);
+          console.error('WebSocketメッセージ受信:', message.type);
           
           if (message.type === 'ready') {
             // 準備完了後、stdout/stderrメッセージを処理
@@ -77,10 +83,8 @@ export class WebSocketTransport implements Transport {
                     }
                   }
                 } else if (msg.type === 'stderr') {
-                  // stderrは重要なエラーのみログ
-                  if (msg.data && msg.data.includes('error')) {
-                    console.error('MCPサーバーエラー:', msg.data);
-                  }
+                  // stderrを詳細にログ
+                  console.error('MCPサーバーSTDERR:', msg.data);
                 } else if (msg.type === 'exit') {
                   if (this.onclose) {
                     this.onclose();
@@ -94,6 +98,7 @@ export class WebSocketTransport implements Transport {
             resolve();
           } else if (message.type === 'error') {
             clearTimeout(timeout);
+            console.error('WebSocketエラーメッセージ:', message.message);
             reject(new Error(message.message));
           }
         } catch (e) {

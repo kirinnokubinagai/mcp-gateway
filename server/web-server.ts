@@ -1,34 +1,10 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { loadStatus, loadTools } from './status-manager.js';
+import { loadStatus, loadTools, saveStatus } from './status-manager.js';
+import { CONFIG_FILE, API_CONFIG, ERROR_MESSAGES, STATUS } from './constants.js';
+import { ServerConfig, UpdateServerRequest } from './types.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Docker環境では環境変数から設定ファイルパスを取得、なければデフォルト
-const CONFIG_FILE = process.env.CONFIG_FILE || (process.env.DOCKER_ENV ? '/app/mcp-config.json' : path.join(__dirname, '../mcp-config.json'));
-console.error('CONFIG_FILE:', CONFIG_FILE);
-console.error('DOCKER_ENV:', process.env.DOCKER_ENV);
-console.error('__dirname:', __dirname);
-
-// 型定義
-interface ServerConfig {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-  enabled: boolean;
-}
-
-interface UpdateServerRequest extends ServerConfig {
-  newName?: string;
-}
-
-// CORS対応のレスポンスヘッダーを設定
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept',
-  'Access-Control-Allow-Credentials': 'true'
-};
+const corsHeaders = API_CONFIG.CORS_HEADERS;
 
 // 設定の読み込み
 async function loadConfig() {
@@ -69,6 +45,13 @@ async function saveConfig(config: any) {
     const jsonStr = JSON.stringify(config, null, 2);
     JSON.parse(jsonStr); // パースできることを確認
     
+    // Docker環境では直接書き込み（EBUSYエラーを防ぐため）
+    if (process.env.DOCKER_ENV) {
+      await fs.writeFile(CONFIG_FILE, jsonStr);
+      console.error(`[saveConfig] 設定を保存しました（Docker環境）: ${Object.keys(config.mcpServers || {}).length}個のサーバー`);
+      return;
+    }
+    
     // 既存ファイルのバックアップ
     try {
       await fs.copyFile(CONFIG_FILE, backupFile);
@@ -101,6 +84,18 @@ const clients = new Set<any>();
 export async function broadcastStatusUpdate() {
   const status = await loadStatus();
   const message = JSON.stringify({ type: 'status', data: status });
+  
+  clients.forEach(client => {
+    if (client.readyState === 1) { // OPEN
+      client.send(message);
+    }
+  });
+}
+
+// 設定変更を全クライアントに通知
+async function broadcastConfigUpdate() {
+  const config = await loadConfig();
+  const message = JSON.stringify({ type: 'config', data: config });
   
   clients.forEach(client => {
     if (client.readyState === 1) { // OPEN
@@ -185,6 +180,10 @@ const server = Bun.serve({
       try {
         const config = await req.json();
         await saveConfig(config);
+        
+        // WebSocketで設定変更を通知
+        await broadcastConfigUpdate();
+        
         return new Response(JSON.stringify({ success: true }), {
           headers: {
             'Content-Type': 'application/json',
@@ -235,6 +234,18 @@ const server = Bun.serve({
         await saveConfig(config);
         console.error(`[POST] サーバー作成成功: ${serverName}`);
         
+        // 新しいサーバーのステータスを「更新中」に設定
+        const status = await loadStatus();
+        status[serverName] = {
+          enabled: serverConfig.enabled,
+          status: 'updating',
+          toolCount: 0
+        };
+        await saveStatus(status);
+        
+        // WebSocketで設定変更を通知
+        await broadcastConfigUpdate();
+        
         return new Response(JSON.stringify({ success: true }), {
           headers: {
             'Content-Type': 'application/json',
@@ -270,9 +281,8 @@ const server = Bun.serve({
         const { newName, ...serverConfig } = body;
         const config = await loadConfig();
         
-        // 存在しない場合はエラー
         if (!config.mcpServers[serverName]) {
-          return new Response(JSON.stringify({ error: 'サーバーが見つかりません' }), {
+          return new Response(JSON.stringify({ error: ERROR_MESSAGES.SERVER_NOT_FOUND }), {
             status: 404,
             headers: {
               'Content-Type': 'application/json',
@@ -291,6 +301,21 @@ const server = Bun.serve({
         }
         
         await saveConfig(config);
+        
+        // 更新されたサーバーのステータスを「更新中」に設定
+        const status = await loadStatus();
+        const targetServerName = newName || serverName;
+        if (serverConfig.enabled) {
+          status[targetServerName] = {
+            enabled: serverConfig.enabled,
+            status: 'updating',
+            toolCount: 0
+          };
+          await saveStatus(status);
+        }
+        
+        // WebSocketで設定変更を通知
+        await broadcastConfigUpdate();
         
         return new Response(JSON.stringify({ success: true }), {
           headers: {
@@ -326,7 +351,7 @@ const server = Bun.serve({
         const config = await loadConfig();
         
         if (!config.mcpServers[serverName]) {
-          return new Response(JSON.stringify({ error: 'サーバーが見つかりません' }), {
+          return new Response(JSON.stringify({ error: ERROR_MESSAGES.SERVER_NOT_FOUND }), {
             status: 404,
             headers: {
               'Content-Type': 'application/json',
@@ -337,6 +362,9 @@ const server = Bun.serve({
         
         delete config.mcpServers[serverName];
         await saveConfig(config);
+        
+        // WebSocketで設定変更を通知
+        await broadcastConfigUpdate();
         
         return new Response(JSON.stringify({ success: true }), {
           headers: {

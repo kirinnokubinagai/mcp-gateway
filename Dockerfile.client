@@ -10,6 +10,10 @@ RUN bun install
 # ソースコードをコピー
 COPY . .
 
+# ビルド時の環境変数
+ARG MCP_API_PORT=3003
+ENV VITE_MCP_API_PORT=${MCP_API_PORT}
+
 # ビルド
 RUN bun run build
 

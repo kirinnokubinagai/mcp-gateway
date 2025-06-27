@@ -1,6 +1,9 @@
 # Bunをベースイメージとして使用
 FROM oven/bun:1-alpine
 
+# Node.jsとnpmをインストール（MCPサーバー実行用）
+RUN apk add --no-cache nodejs npm
+
 WORKDIR /app
 
 # 依存関係のインストール
