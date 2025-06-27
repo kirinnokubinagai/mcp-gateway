@@ -36,7 +36,7 @@ interface MCPClientInfo {
 }
 
 const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
-const mcpClients = new Map<string, MCPClientInfo>();
+export const mcpClients = new Map<string, MCPClientInfo>();
 
 async function loadConfig(): Promise<Config> {
   try {
@@ -66,7 +66,7 @@ function expandEnvVariables<T>(obj: T): T {
   return obj;
 }
 
-async function updateServerStatus() {
+export async function updateServerStatus() {
   const status: Record<string, any> = {};
   const allTools: Record<string, any[]> = {};
   
@@ -361,34 +361,6 @@ async function syncWithConfig() {
   await updateServerStatus();
 }
 
-async function startConfigSync() {
-  try {
-    const { watch } = await import('fs');
-    watch(CONFIG_FILE, async (eventType) => {
-      if (eventType === 'change') {
-        console.error("設定ファイル変更を検知");
-        setTimeout(async () => {
-          try {
-            await syncWithConfig();
-          } catch (error) {
-            console.error("設定同期エラー:", error);
-          }
-        }, 100);
-      }
-    });
-    
-    console.error("設定ファイル監視を開始");
-  } catch (error) {
-    console.error("ファイル監視のセットアップに失敗、ポーリングにフォールバック:", error);
-    setInterval(async () => {
-      try {
-        await syncWithConfig();
-      } catch (error) {
-        console.error("設定同期エラー:", error);
-      }
-    }, 5000);
-  }
-}
 
 async function main() {
   console.error("MCP Gateway Server 起動中...");
@@ -404,12 +376,19 @@ async function main() {
     console.error("初回接続エラー（続行）:", error);
   }
   
-  const transport = new StdioServerTransport();
-  await mcpServer.connect(transport);
+  // コマンドライン引数で--webが指定されているか、環境変数でWEB_MODE=trueの場合はWeb APIモード
+  if (process.argv.includes('--web') || process.env.WEB_MODE === 'true') {
+    // Web APIモードで起動
+    console.error("Web APIモードで起動します...");
+    const { startWebServer } = await import('./web-server.js');
+    await startWebServer();
+  } else {
+    // 標準のstdioモード（claude-codeコンテナから使用）
+    console.error("stdioモードで起動します...");
+    const transport = new StdioServerTransport();
+    await mcpServer.connect(transport);
+  }
   
-  startConfigSync().catch(error => {
-    console.error("設定同期エラー:", error);
-  });
   
   console.error("MCP Gateway Server 起動完了");
 }

@@ -14,5 +14,5 @@ COPY server ./server
 # ポートを公開
 EXPOSE 3003
 
-# 起動コマンド（Bunは直接TypeScriptを実行）
-CMD ["bun", "server/web-server.ts"]
+# 起動コマンド（常にWeb APIモードで実行）
+CMD ["bun", "server/index.ts", "--web"]

@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadStatus, loadTools } from './status-manager.js';
+import { mcpClients, updateServerStatus } from './index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Docker環境では環境変数から設定ファイルパスを取得、なければデフォルト
@@ -59,37 +60,20 @@ async function loadConfig() {
   }
 }
 
-// 設定の保存（アトミック書き込み）
+// 設定の保存
 async function saveConfig(config: any) {
-  const tempFile = `${CONFIG_FILE}.tmp`;
-  const backupFile = `${CONFIG_FILE}.backup`;
-  
   try {
     // 検証: 設定が有効なJSONであることを確認
     const jsonStr = JSON.stringify(config, null, 2);
     JSON.parse(jsonStr); // パースできることを確認
     
-    // 既存ファイルのバックアップ
-    try {
-      await fs.copyFile(CONFIG_FILE, backupFile);
-    } catch (error) {
-      // バックアップファイルが作成できなくても続行
-      console.error('[saveConfig] バックアップ作成をスキップ:', error);
-    }
-    
-    // 一時ファイルに書き込み
-    await fs.writeFile(tempFile, jsonStr);
-    
-    // アトミックに置換
-    await fs.rename(tempFile, CONFIG_FILE);
+    // 直接ファイルに書き込み（Dockerコンテナでのrename問題を回避）
+    await fs.writeFile(CONFIG_FILE, jsonStr);
     
     console.error(`[saveConfig] 設定を保存しました: ${Object.keys(config.mcpServers || {}).length}個のサーバー`);
+    
   } catch (error) {
     console.error('[saveConfig] エラー:', error);
-    // 一時ファイルのクリーンアップ
-    try {
-      await fs.unlink(tempFile);
-    } catch {}
     throw error;
   }
 }
@@ -132,11 +116,13 @@ async function initializeConfig() {
   }
 }
 
-// サーバー起動前に初期化
-await initializeConfig();
+// Web APIサーバーを起動する関数
+export async function startWebServer() {
+  // サーバー起動前に初期化
+  await initializeConfig();
 
-// Bunのサーバーを起動（WebSocket対応）
-const server = Bun.serve({
+  // Bunのサーバーを起動（WebSocket対応）
+  const server = Bun.serve({
   port: Number(process.env.PORT || process.env.MCP_API_PORT) || 3003,
   
   // HTTPリクエストの処理
@@ -434,5 +420,16 @@ const server = Bun.serve({
   }
 });
 
-console.error(`Webサーバーがポート ${server.port} で起動しました`);
-console.error(`WebSocketは ws://localhost:${server.port}/ws で利用可能です`);
+  console.error(`Webサーバーがポート ${server.port} で起動しました`);
+  console.error(`WebSocketは ws://localhost:${server.port}/ws で利用可能です`);
+  
+  return server;
+}
+
+// 直接実行された場合
+if (import.meta.main) {
+  startWebServer().catch(error => {
+    console.error('Web APIサーバー起動エラー:', error);
+    process.exit(1);
+  });
+}

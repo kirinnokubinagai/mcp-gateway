@@ -33,6 +33,9 @@ bun --version
 - **リアルタイム更新**: WebSocket経由でステータスをリアルタイム更新
 - **ツール名の自動変換**: `serverName_toolName`形式で各サーバーのツールを識別
 
+### ⚠️ 重要な注意事項
+Web UI（http://localhost:3002）でMCPサーバーが「エラー」と表示されるのは正常な動作です。MCPサーバーはClaude Codeから接続された時に初めて起動されます。
+
 ## 🚀 クイックスタート
 
 ```bash
@@ -231,7 +234,7 @@ cd ~/Claude-Project
 #### 7. Claude Codeコンテナ内でMCP Gatewayを追加
 ```bash
 docker exec -it claude-code-<プロジェクト名> bash
-claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
+claude mcp add gateway -- docker exec -i shared-mcp-gateway-server bun server/index.ts
 ```
 
 ### ⚠️ 重要：統合後の必須手順

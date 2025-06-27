@@ -41,62 +41,38 @@ console.log(`📄 バックアップを作成しました: ${backupPath}`);
 const fileContent = fs.readFileSync(composeFilePath, 'utf8');
 const composeData = yaml.load(fileContent) as any;
 
-// MCP Gatewayが既に追加されているかチェック
-const isAlreadyIntegrated = composeData.services && composeData.services['mcp-gateway-server'];
+// プロジェクトごとのMCP Gatewayサービスを削除
 let servicesUpdated = false;
 
-if (isAlreadyIntegrated) {
-  console.log('⚠️  MCP Gatewayサービスは既に統合されています');
-  console.log('📝 設定の更新を確認します...');
+if (composeData.services) {
+  // 既存のMCP Gatewayサービスを削除
+  if (composeData.services['mcp-gateway-server'] || composeData.services['mcp-gateway-client']) {
+    console.log('🔧 プロジェクトごとのMCP Gatewayサービスを削除中...');
+    delete composeData.services['mcp-gateway-server'];
+    delete composeData.services['mcp-gateway-client'];
+    servicesUpdated = true;
+  }
 } else {
-  servicesUpdated = true;
-}
-
-// servicesセクションがない場合は作成
-if (!composeData.services) {
   composeData.services = {};
 }
 
-// MCP Gatewayサービスを追加または更新
-if (!isAlreadyIntegrated) {
-  console.log('🔧 MCP Gatewayサービスを追加中...');
-  
-  // MCP Gateway APIサーバー
-  composeData.services['mcp-gateway-server'] = {
-    build: {
-      context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
-      dockerfile: 'Dockerfile.server'
-    },
-    image: 'mcp-gateway-server:latest',
-    container_name: 'mcp-gateway-server-${PROJECT_NAME}',
-    volumes: ['${MCP_CONFIG_PATH:-./mcp-config.json}:/app/mcp-config.json:ro'],
-    environment: [
-      'MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}',
-      'DOCKER_ENV=true',
-      'PORT=${MCP_API_PORT:-3003}'
-    ],
-    extra_hosts: ['host.docker.internal:host-gateway'],
-    restart: 'unless-stopped',
-    network_mode: 'host'
+// プロキシチェッカーの追加（まだない場合）
+if (!composeData.services['mcp-proxy-check']) {
+  console.log('🔧 プロキシチェッカーを追加中...');
+  composeData.services['mcp-proxy-check'] = {
+    image: 'busybox',
+    container_name: 'mcp-proxy-check-${PROJECT_NAME}',
+    command: '|-\n' +
+      '      sh -c "\n' +
+      '            if ! nc -z host.docker.internal 9999 2>/dev/null; then\n' +
+      '              echo \'❌ エラー: MCPプロキシサーバーが起動していません！\'\n' +
+      '              echo \'👉 cd mcp-gateway && bun run proxy\'\n' +
+      '              exit 1\n' +
+      '            fi\n' +
+      '          "',
+    extra_hosts: ['host.docker.internal:host-gateway']
   };
-
-  // MCP管理用Web UI
-  composeData.services['mcp-gateway-client'] = {
-    build: {
-      context: '${CLAUDE_PROJECT_DIR}/mcp-gateway',
-      dockerfile: 'Dockerfile.client'
-    },
-    image: 'mcp-gateway-client:latest',
-    container_name: 'mcp-gateway-client-${PROJECT_NAME}',
-    environment: [
-      'API_URL=http://host.docker.internal:${MCP_API_PORT:-3003}',
-      'MCP_API_PORT=${MCP_API_PORT:-3003}'
-    ],
-    depends_on: ['mcp-gateway-server'],
-    ports: ['${MCP_WEB_PORT:-3002}:3002'],
-    extra_hosts: ['host.docker.internal:host-gateway'],
-    restart: 'unless-stopped'
-  };
+  servicesUpdated = true;
 }
 
 // claude-codeサービスを更新
@@ -111,20 +87,48 @@ if (composeData.services['claude-code']) {
     claudeCode.environment = [];
   }
   if (Array.isArray(claudeCode.environment)) {
-    const mcpGatewayUrl = 'MCP_GATEWAY_URL=http://mcp-gateway-server:${MCP_API_PORT:-3003}';
-    if (!claudeCode.environment.some((env: string) => env.includes('MCP_GATEWAY_URL'))) {
-      claudeCode.environment.push(mcpGatewayUrl);
+    // 共有MCP Gatewayサーバーを使用するように更新
+    const mcpGatewayUrl = 'MCP_GATEWAY_URL=http://shared-mcp-gateway-server:3003';
+    
+    // 既存のMCP_GATEWAY_URLを削除して新しいものを追加
+    claudeCode.environment = claudeCode.environment.filter((env: string) => !env.includes('MCP_GATEWAY_URL'));
+    claudeCode.environment.push(mcpGatewayUrl);
+    claudeCodeUpdated = true;
+  }
+  
+  // depends_onから古いmcp-gateway-serverを削除
+  if (claudeCode.depends_on) {
+    if (Array.isArray(claudeCode.depends_on)) {
+      const index = claudeCode.depends_on.indexOf('mcp-gateway-server');
+      if (index > -1) {
+        claudeCode.depends_on.splice(index, 1);
+        claudeCodeUpdated = true;
+      }
+    }
+  }
+  
+  // extra_hostsに共有ゲートウェイを追加
+  if (!claudeCode.extra_hosts) {
+    claudeCode.extra_hosts = [];
+  }
+  if (Array.isArray(claudeCode.extra_hosts)) {
+    if (!claudeCode.extra_hosts.includes('shared-mcp-gateway-server:host-gateway')) {
+      claudeCode.extra_hosts.push('shared-mcp-gateway-server:host-gateway');
       claudeCodeUpdated = true;
     }
   }
   
-  // depends_onに追加
-  if (!claudeCode.depends_on) {
-    claudeCode.depends_on = [];
+  // networksに共有ネットワークを追加
+  if (!claudeCode.networks) {
+    claudeCode.networks = [];
   }
-  if (Array.isArray(claudeCode.depends_on)) {
-    if (!claudeCode.depends_on.includes('mcp-gateway-server')) {
-      claudeCode.depends_on.push('mcp-gateway-server');
+  if (Array.isArray(claudeCode.networks)) {
+    if (!claudeCode.networks.includes('shared-mcp-network')) {
+      claudeCode.networks.push('shared-mcp-network');
+      claudeCodeUpdated = true;
+    }
+    if (!claudeCode.networks.includes('default')) {
+      claudeCode.networks.push('default');
       claudeCodeUpdated = true;
     }
   }
@@ -132,13 +136,25 @@ if (composeData.services['claude-code']) {
   // volumesに追加
   if (!claudeCode.volumes) {
     claudeCode.volumes = [];
-    claudeCodeUpdated = true;
   }
   const mcpConfigVolume = '${CLAUDE_PROJECT_DIR}/mcp-gateway/claude-project-integration/mcp-servers-gateway.json:/home/developer/.config/claude/mcp-servers.json:ro';
   if (!claudeCode.volumes.some((vol: string) => vol.includes('mcp-servers-gateway.json'))) {
     claudeCode.volumes.push(mcpConfigVolume);
     claudeCodeUpdated = true;
   }
+}
+
+// networksセクションに共有ネットワークを追加
+if (!composeData.networks) {
+  composeData.networks = {};
+}
+if (!composeData.networks['shared-mcp-network']) {
+  console.log('🔧 共有ネットワーク設定を追加中...');
+  composeData.networks['shared-mcp-network'] = {
+    external: true,
+    name: 'shared-mcp-network'
+  };
+  servicesUpdated = true;
 }
 
 // 変更があった場合のみYAMLファイルを更新
@@ -305,21 +321,20 @@ console.log('');
 console.log(`📋 統合ファイル: ${composeFilePath}`);
 console.log(`📋 環境変数ファイル: ${envPath}`);
 console.log('');
-console.log('📝 環境変数の設定値:');
-console.log('   MCP_PROXY_PORT=9999    # MCPプロキシサーバーのポート');
-console.log('   MCP_API_PORT=3003      # MCP Gateway APIのポート');
-console.log('   MCP_WEB_PORT=3002      # MCP Gateway Web UIのポート');
-console.log('   ※ .envファイルで変更可能です');
+console.log('🔧 この統合により:');
+console.log('   - プロジェクトごとのMCP Gatewayサービスを削除');
+console.log('   - 共有MCP Gatewayサーバー (shared-mcp-gateway-server) を使用');
+console.log('   - 共有ネットワーク (shared-mcp-network) で接続');
 console.log('');
-console.log('📝 次のステップ:');
-console.log('1. プロキシサーバーを起動（別ターミナル）:');
-console.log('   cd ~/Claude-Project/mcp-gateway && bun run proxy');
+console.log('📝 前提条件:');
+console.log('1. 共有MCP Gatewayが起動している必要があります:');
+console.log('   cd ~/Claude-Project/mcp-gateway');
+console.log('   docker compose up -d');
 console.log('');
 console.log('2. Docker Composeを再起動:');
-console.log('   cd ~/Claude-Project');
+console.log(`   cd ${path.dirname(composeFilePath)}`);
 console.log('   docker compose down');
-console.log('   ./create-project.sh <プロジェクト名>');
+console.log('   docker compose up -d');
 console.log('');
-console.log('3. MCP Gatewayを追加:');
-console.log('   docker exec -it claude-code-<プロジェクト名> bash');
-console.log('   claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts');
+console.log('📝 MCP Gateway設定を削除する場合:');
+console.log('   ./remove.ts <docker-compose.ymlファイルのパス>');

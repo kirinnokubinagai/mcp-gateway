@@ -1,42 +1,7 @@
 {
-  "obsidian": {
-    "enabled": true,
-    "status": "connected",
-    "toolCount": 18
-  },
   "context7": {
     "enabled": true,
     "status": "connected",
     "toolCount": 2
-  },
-  "blender": {
-    "enabled": true,
-    "status": "connected",
-    "toolCount": 17
-  },
-  "supabase": {
-    "enabled": true,
-    "status": "connected",
-    "toolCount": 28
-  },
-  "desktop-commander": {
-    "enabled": true,
-    "status": "connected",
-    "toolCount": 18
-  },
-  "figma-developer-mcp": {
-    "enabled": true,
-    "status": "connected",
-    "toolCount": 2
-  },
-  "html-to-design": {
-    "enabled": true,
-    "status": "connected",
-    "toolCount": 2
-  },
-  "line-bot": {
-    "enabled": true,
-    "status": "connected",
-    "toolCount": 6
   }
 }

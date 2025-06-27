@@ -30,20 +30,23 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - mcp-network
+      - shared-mcp-network
 
   mcp-gateway-server:
     build:
       context: .
       dockerfile: Dockerfile.server
-    container_name: mcp-gateway-server
+    container_name: shared-mcp-gateway-server
     ports:
       - "${MCP_API_PORT:-3003}:3003"
     volumes:
-      - ./mcp-config.json:/app/mcp-config.json
+      - ./mcp-config.json:/app/mcp-config.json:rw
+      - ./mcp-status.json:/app/mcp-status.json:rw
+      - ./mcp-tools.json:/app/mcp-tools.json:rw
     environment:
       - MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
       - DOCKER_ENV=true
+      - PORT=${MCP_API_PORT:-3003}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -51,13 +54,13 @@ services:
       proxy-check:
         condition: service_completed_successfully
     networks:
-      - mcp-network
+      - shared-mcp-network
 
   mcp-gateway-client:
     build:
       context: .
       dockerfile: Dockerfile.client
-    container_name: mcp-gateway-client
+    container_name: shared-mcp-gateway-client
     ports:
       - "${MCP_WEB_PORT:-3002}:3002"
     environment:
@@ -67,29 +70,9 @@ services:
       - mcp-gateway-server
     restart: unless-stopped
     networks:
-      - mcp-network
-
-  # Claude Code用のMCPサーバー（stdioモード）
-  mcp-gateway-stdio:
-    build:
-      context: .
-      dockerfile: Dockerfile.mcp
-    container_name: mcp-gateway-stdio
-    volumes:
-      - ./mcp-config.json:/app/mcp-config.json
-    environment:
-      - MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
-      - DOCKER_ENV=true
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    stdin_open: true
-    tty: true
-    depends_on:
-      proxy-check:
-        condition: service_completed_successfully
-    networks:
-      - mcp-network
+      - shared-mcp-network
 
 networks:
-  mcp-network:
+  shared-mcp-network:
+    name: shared-mcp-network
     driver: bridge
