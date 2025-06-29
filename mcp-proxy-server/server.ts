@@ -19,15 +19,22 @@ interface StdinMessage {
   data: string;
 }
 
+interface HostCommandMessage {
+  type: 'host-command';
+  command: string;
+  args?: string[];
+}
+
 interface OutputMessage {
-  type: 'stdout' | 'stderr' | 'error' | 'exit' | 'ready';
+  type: 'stdout' | 'stderr' | 'error' | 'exit' | 'ready' | 'host-command-result';
   data?: string;
   message?: string;
   code?: number | null;
   signal?: NodeJS.Signals | null;
+  success?: boolean;
 }
 
-type IncomingMessage = InitMessage | StdinMessage;
+type IncomingMessage = InitMessage | StdinMessage | HostCommandMessage;
 
 const PORT = Number(process.env.MCP_PROXY_PORT || process.env.PORT) || 9999;
 
@@ -134,6 +141,59 @@ Bun.serve({
           const config = (ws as any).config;
           console.log(`📥 stdin to ${config.command}:`, message.data);
           (ws as any).mcpProcess.stdin?.write(message.data);
+        }
+        // ホストコマンドの実行
+        else if (message.type === 'host-command') {
+          console.log(`🖥️  ホストコマンド実行: ${message.command} ${(message.args || []).join(' ')}`);
+          
+          // 許可されたコマンドのホワイトリスト
+          const allowedCommands = ['say', 'osascript', 'notify-send', 'open'];
+          
+          if (!allowedCommands.includes(message.command)) {
+            const errorMessage: OutputMessage = {
+              type: 'host-command-result',
+              success: false,
+              message: `許可されていないコマンド: ${message.command}`
+            };
+            ws.send(JSON.stringify(errorMessage));
+            return;
+          }
+          
+          const hostProcess = spawn(message.command, message.args || [], {
+            env: process.env,
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+          
+          let stdout = '';
+          let stderr = '';
+          
+          hostProcess.stdout?.on('data', (data: Buffer) => {
+            stdout += data.toString();
+          });
+          
+          hostProcess.stderr?.on('data', (data: Buffer) => {
+            stderr += data.toString();
+          });
+          
+          hostProcess.on('close', (code: number | null) => {
+            const resultMessage: OutputMessage = {
+              type: 'host-command-result',
+              success: code === 0,
+              data: stdout,
+              message: stderr || undefined,
+              code
+            };
+            ws.send(JSON.stringify(resultMessage));
+          });
+          
+          hostProcess.on('error', (error: Error) => {
+            const errorMessage: OutputMessage = {
+              type: 'host-command-result',
+              success: false,
+              message: `コマンド実行エラー: ${error.message}`
+            };
+            ws.send(JSON.stringify(errorMessage));
+          });
         }
       } catch (e) {
         console.error('メッセージ処理エラー:', e);

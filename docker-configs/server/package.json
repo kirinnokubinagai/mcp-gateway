@@ -1,0 +1,11 @@
+{
+  "name": "mcp-gateway-server",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@types/ws": "^8.18.1",
+    "dotenv": "^16.5.0",
+    "js-yaml": "^4.1.0",
+    "ws": "^8.18.3"
+  }
+}

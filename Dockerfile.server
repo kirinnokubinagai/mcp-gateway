@@ -4,7 +4,7 @@ FROM oven/bun:1-alpine
 WORKDIR /app
 
 # 依存関係のインストール
-COPY package.json ./
+COPY docker-configs/server/package.json ./
 RUN bun install --production
 
 # ソースコードをコピー

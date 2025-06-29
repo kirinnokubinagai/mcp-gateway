@@ -229,6 +229,27 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
     inputSchema: { type: "object", properties: {} }
   });
   
+  // ホストコマンド実行ツールを追加（汎用）
+  tools.push({
+    name: "host_execute_command",
+    description: "[host] ホストマシンでコマンドを実行（say, osascript, open, notify-send など）",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description: "実行するコマンド名（say, osascript, open など）"
+        },
+        args: {
+          type: "array",
+          items: { type: "string" },
+          description: "コマンドに渡す引数"
+        }
+      },
+      required: ["command"]
+    }
+  });
+  
   console.error(`合計ツール数: ${tools.length}`);
   return { tools };
 });
@@ -265,6 +286,75 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   
   const serverName = name.substring(0, separatorIndex);
+  
+  // ホストコマンド実行の特別処理
+  if (name === 'host_execute_command') {
+    const commandName = args.command;
+    const commandArgs = args.args || [];
+    
+    // 許可されたコマンドのホワイトリスト
+    const allowedCommands = ['say', 'osascript', 'notify-send', 'open'];
+    
+    if (!allowedCommands.includes(commandName)) {
+      throw new Error(`許可されていないコマンド: ${commandName}。許可されているコマンド: ${allowedCommands.join(', ')}`);
+    }
+    
+    try {
+      // WebSocketプロキシ経由でホストコマンド実行
+      const WebSocket = (await import('ws')).default;
+      const proxyUrl = process.env.DOCKER_ENV === 'true' 
+        ? 'ws://host.docker.internal:9999'
+        : 'ws://localhost:9999';
+      
+      const ws = new WebSocket(proxyUrl);
+      
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('ホストコマンド実行タイムアウト'));
+        }, 10000);
+        
+        ws.on('open', () => {
+          const hostCommand = {
+            type: 'host-command',
+            command: commandName,
+            args: commandArgs
+          };
+          ws.send(JSON.stringify(hostCommand));
+        });
+        
+        ws.on('message', (data: any) => {
+          const response = JSON.parse(data.toString());
+          if (response.type === 'host-command-result') {
+            clearTimeout(timeout);
+            ws.close();
+            
+            if (response.success) {
+              resolve({
+                content: [
+                  {
+                    type: "text",
+                    text: response.data || `コマンド '${commandName}' が正常に実行されました`
+                  }
+                ]
+              });
+            } else {
+              reject(new Error(response.message || 'コマンド実行失敗'));
+            }
+          }
+        });
+        
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+      });
+    } catch (error) {
+      console.error(`ホストコマンド実行エラー:`, error);
+      throw error;
+    }
+  }
+  
   const client = mcpClients.get(serverName);
   
   if (!client || client.status !== 'connected' || !client.client) {
@@ -376,18 +466,10 @@ async function main() {
     console.error("初回接続エラー（続行）:", error);
   }
   
-  // コマンドライン引数で--webが指定されているか、環境変数でWEB_MODE=trueの場合はWeb APIモード
-  if (process.argv.includes('--web') || process.env.WEB_MODE === 'true') {
-    // Web APIモードで起動
-    console.error("Web APIモードで起動します...");
-    const { startWebServer } = await import('./web-server.js');
-    await startWebServer();
-  } else {
-    // 標準のstdioモード（claude-codeコンテナから使用）
-    console.error("stdioモードで起動します...");
-    const transport = new StdioServerTransport();
-    await mcpServer.connect(transport);
-  }
+  // 標準のstdioモード（claude-codeコンテナから使用）
+  console.error("stdioモードで起動します...");
+  const transport = new StdioServerTransport();
+  await mcpServer.connect(transport);
   
   
   console.error("MCP Gateway Server 起動完了");

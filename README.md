@@ -5,10 +5,10 @@
 ## 📋 必要な環境
 
 ### 必須要件
-- **Bun**: v1.0以上（必須）
+- **Bun**: v1.0以上（プロキシサーバー用、必須）
+- **Node.js**: v18以上（watch-config.js用、必須）
 - **Docker**: v20以上（Web UI使用時）
 - **Docker Compose**: v2以上（Web UI使用時）
-- **注意**: このプロジェクトはBun専用です。Node.js/npmでは動作しません。
 
 ### 推奨環境
 - **OS**: macOS、Linux、Windows (WSL2)
@@ -39,58 +39,35 @@ Web UI（http://localhost:3002）でMCPサーバーが「エラー」と表示�
 ## 🚀 クイックスタート
 
 ```bash
-# 依存関係のインストール
-bun install
+# プロキシサーバーを起動（基本）
+bun run proxy:watch
 
-# Claude Desktop用（プロキシサーバーとGatewayを起動）
-bun run mcp
+# APIサーバーとWeb UIを起動（デフォルト）
+docker-compose up -d
 
-# MCP管理用Web UI付きで起動（Docker使用）
-bun start
-
-# 開発モード
-bun run dev
+# Web UIなしで起動（オプション）
+docker-compose -f docker-compose.yml -f docker-compose.without-ui.yml up -d
 ```
 
 ### 📌 動作ポート
 
 - **プロキシサーバー**: ws://localhost:9999
 - **APIサーバー**: http://localhost:3003
-- **MCP管理用Web UI**: http://localhost:3002 （`bun start`時のみ）
+- **MCP管理用Web UI**: http://localhost:3002 （デフォルトで起動）
 
 ## 🤖 Claude Desktopでの使用
 
-### 1. 依存関係のインストール
-
-```bash
-bun install
-```
-
-### 2. Claude Desktopへの設定
+### Claude Desktopへの設定
 
 Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/claude_desktop_config.json`）に以下を追加：
 
-#### 基本設定（推奨）
 ```json
 {
   "mcpServers": {
     "gateway": {
       "command": "bun",
-      "args": ["run", "mcp"],
-      "cwd": "/path/to/mcp-gateway"
-    }
-  }
-}
-```
-
-#### MCP管理用Web UIなしで起動（リソース節約）
-```json
-{
-  "mcpServers": {
-    "gateway": {
-      "command": "bun",
-      "args": ["run", "mcp:no-ui"],
-      "cwd": "/path/to/mcp-gateway"
+      "args": ["run", "proxy"],
+      "cwd": "/path/to/mcp-gateway/mcp-proxy-server"
     }
   }
 }
@@ -98,8 +75,6 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 
 **重要**: 
 - Gateway MCPを使用する場合、個別のMCPサーバー（obsidian、context7など）の設定は削除してください
-- `bun run mcp`はシンプルな起動コマンドで、MCP管理用Web UIは含まれません
-- MCP管理用Web UIが必要な場合は`bun start`を使用してください
 
 ## 🤖 Claude Codeでの使用
 
@@ -205,14 +180,7 @@ git submodule add https://github.com/kirinnokubinagai/mcp-gateway.git mcp-gatewa
 git submodule update --init --recursive
 ```
 
-#### 3. 依存関係をインストール
-```bash
-cd mcp-gateway
-bun install
-cd ..
-```
-
-#### 4. 統合スクリプトを実行
+#### 3. 統合スクリプトを実行
 ```bash
 # integrate.tsを使用してdocker-compose.ymlを自動更新
 ./mcp-gateway/integrate.ts ~/Claude-Project/docker-compose-base.yml
@@ -365,8 +333,6 @@ MCP Gatewayディレクトリから実行：
 ```bash
 # あなたのプロジェクトのルートで実行
 git submodule add https://github.com/your-username/mcp-gateway.git
-cd mcp-gateway
-bun install
 ```
 
 **オプションB: 直接コピー**
@@ -378,11 +344,8 @@ cp -r /path/to/mcp-gateway ./mcp-gateway
 #### Step 2: プロキシサーバーを起動
 
 ```bash
-# MCP Gatewayの依存関係をインストール
-cd mcp-gateway
-bun install
-
 # 別ターミナルでプロキシを起動（重要！）
+cd mcp-gateway
 bun run proxy
 ```
 
@@ -511,9 +474,8 @@ bun run proxy
 
 #### ❌ エラー: "Cannot find module"
 ```bash
-# 解決策
-cd mcp-gateway
-bun install
+# 解決策: プロキシサーバーはBunの実行時に依存関係を解決します
+# package.jsonには依存関係が不要です
 ```
 
 #### ❌ エラー: ポートが既に使用中
@@ -646,8 +608,8 @@ services:
 
 ## 🎯 注意事項
 
-### Bun専用プロジェクト
-このプロジェクトはBunランタイムに特化して最適化されています。Node.js/npmでは動作しません。
+### プロキシサーバーはBun専用
+プロキシサーバー（mcp-proxy-server）はBunランタイムに特化して最適化されています。watch-config.jsはNode.jsで動作します。
 
 ### 環境変数
 以下の環境変数を`.env`ファイルで設定できます：
@@ -664,11 +626,11 @@ MCP_WEB_PORT=3002
 ### スクリプト
 
 ```bash
-# 開発モード（ファイル監視付き）
-bun run dev
+# プロキシサーバー起動
+bun run proxy
 
-# ビルド（MCP管理用Web UI）
-bun run build
+# プロキシサーバー起動（設定ファイル監視付き）
+bun run proxy:watch
 
 # クリーンアップ
 bun run clean

@@ -4,44 +4,11 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun run proxy & bun run dev:server & bun run dev:web",
-    "dev:server": "bun --watch server/index.ts",
-    "dev:web": "bun --watch server/web-server.ts",
-    "build": "bunx vite build",
-    "preview": "bunx vite preview",
-    "start": "bun run proxy & docker-compose up",
-    "mcp": "bun run proxy & sleep 2 && bun server/index.ts",
-    "mcp:no-ui": "bun run proxy & sleep 2 && MCP_NO_UI=true bun server/index.ts",
     "proxy": "cd mcp-proxy-server && bun run server.ts",
+    "proxy:watch": "node scripts/watch-config.js",
     "clean": "rm -rf dist node_modules"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "@radix-ui/react-dialog": "^1.1.14",
-    "@radix-ui/react-label": "^2.1.7",
-    "@radix-ui/react-slot": "^1.2.3",
-    "@radix-ui/react-switch": "^1.2.4",
-    "@radix-ui/react-tabs": "^1.1.1",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "dotenv": "^16.5.0",
-    "js-yaml": "^4.1.0",
-    "lucide-react": "^0.523.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "tailwind-merge": "^3.3.1",
-    "tailwindcss-animate": "^1.0.7"
-  },
   "devDependencies": {
-    "@types/bun": "^1.2.17",
-    "@types/js-yaml": "^4.0.9",
-    "@types/react": "^19.0.3",
-    "@types/react-dom": "^19.0.2",
-    "@vitejs/plugin-react": "^4.3.4",
-    "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.1",
-    "typescript": "~5.6.2",
-    "vite": "^6.0.5"
+    "@types/bun": "^1.2.17"
   }
 }

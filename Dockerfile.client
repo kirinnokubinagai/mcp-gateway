@@ -4,11 +4,12 @@ FROM oven/bun:1-alpine AS builder
 WORKDIR /app
 
 # 依存関係のインストール
-COPY package.json ./
+COPY docker-configs/client/package.json ./
 RUN bun install
 
 # ソースコードをコピー
-COPY . .
+COPY index.html vite.config.ts postcss.config.js tailwind.config.js tsconfig.json tsconfig.node.json ./
+COPY src ./src
 
 # ビルド
 RUN bun run build

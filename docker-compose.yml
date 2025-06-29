@@ -47,6 +47,7 @@ services:
       - MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
       - DOCKER_ENV=true
       - PORT=${MCP_API_PORT:-3003}
+      - HOST_PATH=${PATH}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
