@@ -30,6 +30,8 @@ dist-ssr
 
 # Config
 mcp-config.json
+mcp-status.json
+mcp-tools.json
 
 # Proxy logs
 proxy.log
