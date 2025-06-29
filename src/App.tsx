@@ -100,9 +100,9 @@ function App() {
   const fetchConfig = async () => {
     try {
       // 設定を取得
-      const configResponse = await fetch(`${getApiBaseUrl()}/api/config`)
+      const configResponse = await fetch(`${getApiBaseUrl()}/api/servers`)
       const configData = await configResponse.json()
-      setServers(configData.mcpServers || configData.servers || {})
+      setServers(configData)
       
       // ステータスを取得
       const statusResponse = await fetch(`${getApiBaseUrl()}/api/status`)
