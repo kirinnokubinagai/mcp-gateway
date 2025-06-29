@@ -5,6 +5,7 @@
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@types/ws": "^8.18.1",
     "dotenv": "^16.5.0",
+    "hono": "^4.0.0",
     "js-yaml": "^4.1.0",
     "ws": "^8.18.3"
   }

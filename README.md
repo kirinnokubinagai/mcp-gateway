@@ -46,14 +46,14 @@ bun run proxy:watch
 docker-compose up -d
 
 # Web UIなしで起動（オプション）
-docker-compose -f docker-compose.yml -f docker-compose.without-ui.yml up -d
+docker-compose up -d proxy-check mcp-gateway-server
 ```
 
 ### 📌 動作ポート
 
 - **プロキシサーバー**: ws://localhost:9999
 - **APIサーバー**: http://localhost:3003
-- **MCP管理用Web UI**: http://localhost:3002 （デフォルトで起動）
+- **MCP管理用Web UI**: http://localhost:3002
 
 ## 🤖 Claude Desktopでの使用
 

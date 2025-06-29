@@ -1,7 +1,0 @@
-version: '3.8'
-
-services:
-  # Web UIを無効化
-  mcp-gateway-client:
-    profiles:
-      - never

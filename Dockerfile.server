@@ -14,5 +14,9 @@ COPY server ./server
 # ポートを公開
 EXPOSE 3003
 
-# 起動コマンド（常にWeb APIモードで実行）
-CMD ["bun", "server/index.ts", "--web"]
+# スタートスクリプトを実行可能にする
+COPY server/start-both.sh ./server/
+RUN chmod +x server/start-both.sh
+
+# 起動コマンド（両方のサーバーを起動）
+CMD ["sh", "server/start-both.sh"]

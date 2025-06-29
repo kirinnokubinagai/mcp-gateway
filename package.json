@@ -6,6 +6,7 @@
   "scripts": {
     "proxy": "cd mcp-proxy-server && bun run server.ts",
     "proxy:watch": "node scripts/watch-config.js",
+    "api": "cd server && bun run api-server.ts",
     "clean": "rm -rf dist node_modules"
   },
   "devDependencies": {
