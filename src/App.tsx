@@ -1,4 +1,4 @@
-import { Plus, Settings, Trash2 } from 'lucide-react'
+import { Plus, Settings, Trash2, GripVertical } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import './App.css'
 import { Button } from "./components/ui/button"
@@ -37,6 +37,8 @@ function App() {
     env: '',
     enabled: true
   })
+  const [draggedServer, setDraggedServer] = useState<string | null>(null)
+  const [dragOverServer, setDragOverServer] = useState<string | null>(null)
 
   // APIのベースURLを取得
   const getApiBaseUrl = () => {
@@ -142,20 +144,24 @@ function App() {
       
       if (editingServer) {
         // 更新モード
-        response = await fetch(`${getApiBaseUrl()}/api/servers/${editingServer}`, {
+        response = await fetch(`${getApiBaseUrl()}/api/servers`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...serverConfig,
-            newName: newServer.name
+            oldName: editingServer,
+            newName: newServer.name,
+            ...serverConfig
           })
         })
       } else {
         // 新規作成モード
-        response = await fetch(`${getApiBaseUrl()}/api/servers/${newServer.name}`, {
+        response = await fetch(`${getApiBaseUrl()}/api/servers`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(serverConfig)
+          body: JSON.stringify({
+            name: newServer.name,
+            ...serverConfig
+          })
         })
       }
       
@@ -178,8 +184,10 @@ function App() {
 
   const handleDeleteServer = async (name: string) => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/servers/${name}`, {
-        method: 'DELETE'
+      const response = await fetch(`${getApiBaseUrl()}/api/servers`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
       })
       
       if (response.ok) {
@@ -222,6 +230,79 @@ function App() {
     }
   }
 
+  const handleDragStart = (e: React.DragEvent, name: string) => {
+    console.log('Drag start:', name)
+    setDraggedServer(name)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent, name: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (draggedServer && draggedServer !== name) {
+      setDragOverServer(name)
+    }
+  }
+
+  const handleDragLeave = () => {
+    setDragOverServer(null)
+  }
+
+  const handleDrop = async (e: React.DragEvent, targetName: string) => {
+    e.preventDefault()
+    console.log('Drop:', draggedServer, '->', targetName)
+    setDragOverServer(null)
+    
+    if (!draggedServer || draggedServer === targetName) {
+      return
+    }
+
+    try {
+      // サーバーの順序を再配置
+      const serverKeys = Object.keys(servers)
+      const draggedIndex = serverKeys.indexOf(draggedServer)
+      const targetIndex = serverKeys.indexOf(targetName)
+      
+      if (draggedIndex === -1 || targetIndex === -1) {
+        return
+      }
+      
+      // 配列を再配置
+      const newKeys = [...serverKeys]
+      newKeys.splice(draggedIndex, 1)
+      newKeys.splice(targetIndex, 0, draggedServer)
+      
+      // 新しい順序でサーバーオブジェクトを作成
+      const orderedServers: Record<string, ServerConfig> = {}
+      newKeys.forEach(key => {
+        orderedServers[key] = servers[key]
+      })
+      
+      console.log('Sending reorder request:', { servers: orderedServers })
+      
+      // APIで更新
+      const response = await fetch(`${getApiBaseUrl()}/api/servers/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ servers: orderedServers })
+      })
+      
+      if (response.ok) {
+        setServers(orderedServers)
+      } else {
+        const errorData = await response.json()
+        alert(`順序変更エラー: ${errorData.error}`)
+        await fetchConfig() // エラー時は元に戻す
+      }
+    } catch (error) {
+      console.error('順序変更に失敗しました:', error)
+      alert(`エラー: ${(error as Error).message}`)
+      await fetchConfig()
+    } finally {
+      setDraggedServer(null)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -237,10 +318,25 @@ function App() {
               {Object.entries(servers).map(([name, config]) => {
                 const status = serverStatus[name] || { status: 'disabled', toolCount: 0 }
                 return (
-                  <Card key={name}>
+                  <Card 
+                    key={name}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, name)}
+                    onDragOver={(e) => handleDragOver(e, name)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, name)}
+                    className={`cursor-move transition-all ${
+                      dragOverServer === name ? 'ring-2 ring-primary' : ''
+                    } ${
+                      draggedServer === name ? 'opacity-50' : ''
+                    }`}
+                  >
                     <CardHeader>
                       <div className="flex items-center justify-between">
-                        <CardTitle>{name}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          <GripVertical className="w-4 h-4 text-muted-foreground" />
+                          <CardTitle>{name}</CardTitle>
+                        </div>
                         <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
                           !config.enabled ? 'bg-gray-100 text-gray-600' :
                           status.status === 'connected' ? 'bg-green-100 text-green-700' :

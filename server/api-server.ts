@@ -69,31 +69,112 @@ app.post('/api/servers', async (c) => {
   }
 });
 
-// MCPサーバーを更新するエンドポイント
-app.put('/api/servers/:name', async (c) => {
+// MCPサーバーの順番を一括で変更するエンドポイント
+app.put('/api/servers/reorder', async (c) => {
   try {
-    const oldName = c.req.param('name');
     const body = await c.req.json();
+    console.log('Reorder request body:', JSON.stringify(body, null, 2));
+    
+    const { servers } = body;
+    if (!servers) {
+      return c.json({ error: 'サーバーリストが指定されていません' }, 400);
+    }
+    
+    // 空のオブジェクトチェック
+    if (Object.keys(servers).length === 0) {
+      return c.json({ error: 'サーバーリストが空です' }, 400);
+    }
+    
     const config = await loadConfig();
+    
+    // 既存のサーバーのキーを取得
+    const existingKeys = Object.keys(config.mcpServers);
+    const newKeys = Object.keys(servers);
+    
+    // すべてのキーが一致することを確認（順序は異なってもOK）
+    const existingSet = new Set(existingKeys);
+    const newSet = new Set(newKeys);
+    
+    if (existingSet.size !== newSet.size) {
+      return c.json({ error: 'サーバーの数が一致しません' }, 400);
+    }
+    
+    for (const key of existingKeys) {
+      if (!newSet.has(key)) {
+        return c.json({ error: `サーバー "${key}" が新しいリストに含まれていません` }, 400);
+      }
+    }
+    
+    for (const key of newKeys) {
+      if (!existingSet.has(key)) {
+        return c.json({ error: `不明なサーバー "${key}" が含まれています` }, 400);
+      }
+    }
+    
+    // 新しい順序でサーバーを設定（値は既存のものを使用）
+    const orderedServers: Record<string, any> = {};
+    for (const key of newKeys) {
+      orderedServers[key] = config.mcpServers[key];
+    }
+    
+    config.mcpServers = orderedServers;
+    await saveConfig(config);
+    
+    // 設定変更を通知
+    await notifyConfigChange();
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('順序変更エラー:', error);
+    return c.json({ error: `順序の変更に失敗しました: ${(error as Error).message}` }, 500);
+  }
+});
+
+// MCPサーバーを更新するエンドポイント
+app.put('/api/servers', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { oldName, newName, command, args, env, enabled } = body;
+    
+    if (!oldName) {
+      return c.json({ error: '更新対象のサーバー名が指定されていません' }, 400);
+    }
+    
+    // JSONファイルを文字列として読み込む
+    const jsonContent = await readFile(CONFIG_FILE, 'utf-8');
+    const config = JSON.parse(jsonContent);
     
     if (!config.mcpServers[oldName]) {
       return c.json({ error: 'サーバーが見つかりません' }, 404);
     }
     
-    // 新しい名前がある場合は名前を変更
-    const newName = body.newName || oldName;
+    // 新しい名前（指定されていない場合は既存の名前を使用）
+    const targetName = newName || oldName;
     
-    // 設定を更新
-    config.mcpServers[newName] = {
-      command: body.command,
-      args: body.args || [],
-      env: body.env || {},
-      enabled: body.enabled !== undefined ? body.enabled : true
+    // 新しい設定値
+    const newValue = {
+      command: command,
+      args: args || [],
+      env: env || {},
+      enabled: enabled !== undefined ? enabled : true
     };
     
-    // 名前が変更された場合は古い設定を削除
-    if (newName !== oldName) {
-      delete config.mcpServers[oldName];
+    if (targetName !== oldName) {
+      // 名前が変更される場合、順序を保持するため新しいオブジェクトを作成
+      const orderedServers: Record<string, any> = {};
+      
+      for (const [key, value] of Object.entries(config.mcpServers)) {
+        if (key === oldName) {
+          orderedServers[targetName] = newValue;
+        } else {
+          orderedServers[key] = value;
+        }
+      }
+      
+      config.mcpServers = orderedServers;
+    } else {
+      // 名前変更なしの場合は値のみ更新
+      config.mcpServers[oldName] = newValue;
     }
     
     await saveConfig(config);
@@ -109,9 +190,15 @@ app.put('/api/servers/:name', async (c) => {
 });
 
 // MCPサーバーを削除するエンドポイント
-app.delete('/api/servers/:name', async (c) => {
+app.delete('/api/servers', async (c) => {
   try {
-    const name = c.req.param('name');
+    const body = await c.req.json();
+    const { name } = body;
+    
+    if (!name) {
+      return c.json({ error: '削除対象のサーバー名が指定されていません' }, 400);
+    }
+    
     const config = await loadConfig();
     
     if (!config.mcpServers[name]) {
