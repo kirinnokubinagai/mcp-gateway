@@ -7,6 +7,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from 'fs/promises';
+import { watch } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { saveStatus, saveTools } from './status-manager.js';
@@ -43,9 +44,9 @@ async function loadConfig(): Promise<Config> {
     const data = await fs.readFile(CONFIG_FILE, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
-    const defaultConfig: Config = { mcpServers: {} };
-    await fs.writeFile(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
-    return defaultConfig;
+    console.error('設定ファイルの読み込みエラー:', error);
+    // ファイルが存在しない場合は空の設定を返す（ファイルは作成しない）
+    return { mcpServers: {} };
   }
 }
 
@@ -89,7 +90,11 @@ export async function updateServerStatus() {
 
 async function connectToMCPServer(name: string, config: ServerConfig) {
   try {
-    console.error(`MCPサーバーに接続中: ${name}`);
+    // 初回接続時のみログを出力
+    const existingClient = mcpClients.get(name);
+    if (!existingClient || existingClient.status !== 'error') {
+      console.error(`MCPサーバーに接続中: ${name}`);
+    }
     
     mcpClients.set(name, {
       config,
@@ -110,7 +115,6 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     const proxyUrl = process.env.MCP_PROXY_URL || `ws://${proxyHost}:${proxyPort}`;
     
     if (proxyUrl) {
-      console.error(`WebSocketプロキシ経由で接続: ${proxyUrl}`);
       transport = new WebSocketTransport({
         url: proxyUrl,
         command: expandedConfig.command,
@@ -135,7 +139,11 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     );
     
     await client.connect(transport);
-    console.error(`${name}: 接続完了`);
+    
+    // 初回接続時のみログを出力
+    if (!existingClient || existingClient.status !== 'error') {
+      console.error(`${name}: 接続完了`);
+    }
     
     await new Promise(resolve => setTimeout(resolve, 1000));
     
@@ -143,7 +151,6 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     const toolMapping = new Map<string, string>();
     
     try {
-      console.error(`${name}のツールリストを取得中...`);
       const response = await Promise.race([
         client.listTools(),
         new Promise<any>((_, reject) => 
@@ -151,7 +158,11 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
         )
       ]);
       tools = response.tools || [];
-      console.error(`${name}のツール取得成功: ${tools.length}個`);
+      
+      // 初回接続時のみ詳細ログを出力
+      if (!existingClient || existingClient.status !== 'error') {
+        console.error(`${name}のツール取得成功: ${tools.length}個`);
+      }
       
       tools.forEach(tool => {
         const gatewayToolName = tool.name.startsWith(`${name}_`) 
@@ -159,10 +170,9 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
           : `${name}_${tool.name}`;
         
         toolMapping.set(gatewayToolName, tool.name);
-        console.error(`  ツール: ${tool.name} -> ${gatewayToolName}`);
       });
     } catch (error) {
-      console.error(`ツールリスト取得エラー ${name}:`, error);
+      // エラーログは最小限に
     }
     
     mcpClients.set(name, {
@@ -178,16 +188,28 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     
     return { success: true, tools };
   } catch (error) {
-    console.error(`接続失敗 ${name}:`, error);
+    const errorMessage = (error as Error).message;
+    
+    // 既にエラー状態の場合はログを出力しない
+    if (!existingClient || existingClient.status !== 'error') {
+      if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+        console.error(`${name}: パッケージが見つかりません`);
+      } else if (errorMessage.includes('spawn') || errorMessage.includes('ENOENT')) {
+        console.error(`${name}: コマンドが見つかりません`);
+      } else {
+        console.error(`${name}: 接続失敗`);
+      }
+    }
+    
     mcpClients.set(name, {
       config,
       status: 'error',
-      error: (error as Error).message
+      error: errorMessage
     });
     
     await updateServerStatus();
     
-    return { success: false, error: (error as Error).message };
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -265,7 +287,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     for (const [serverName, client] of mcpClients.entries()) {
       status[serverName] = {
-        enabled: config.servers[serverName]?.enabled || false,
+        enabled: config.mcpServers[serverName]?.enabled || false,
         status: client.status,
         toolCount: client.tools?.length || 0,
         error: client.error
@@ -423,13 +445,11 @@ async function syncWithConfig() {
   }
   await Promise.all(disconnectPromises);
   
-  const connectionPromises = [];
-  
   for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
     const currentClient = mcpClients.get(name);
     
     if (!serverConfig.enabled && currentClient) {
-      connectionPromises.push(disconnectFromMCPServer(name));
+      await disconnectFromMCPServer(name);
       continue;
     }
     
@@ -441,30 +461,57 @@ async function syncWithConfig() {
         if (currentClient) {
           await disconnectFromMCPServer(name);
         }
-        connectionPromises.push(connectToMCPServer(name, serverConfig));
+        
+        // 個別にエラーをキャッチして、失敗しても他のサーバーに接続を続ける
+        try {
+          await connectToMCPServer(name, serverConfig);
+        } catch (error) {
+          // エラーは内部で処理されるため、ここでは何もしない
+        }
       }
     }
   }
-  
-  await Promise.all(connectionPromises);
   
   await updateServerStatus();
 }
 
 
+// 設定ファイル監視とリロード機能
+let configWatcher: any = null;
+let reloadTimeout: NodeJS.Timeout | null = null;
+
+function startConfigWatcher() {
+  if (configWatcher) return;
+  
+  configWatcher = watch(CONFIG_FILE, async (eventType) => {
+    if (eventType === 'change') {
+      // デバウンス処理
+      if (reloadTimeout) {
+        clearTimeout(reloadTimeout);
+      }
+      
+      reloadTimeout = setTimeout(async () => {
+        console.error("設定ファイルが変更されました。再読み込み中...");
+        await syncWithConfig();
+      }, 1000);
+    }
+  });
+}
+
+// API経由で設定が変更されたときの通知を受け取る
+export async function notifyConfigChange() {
+  console.error("API経由で設定が変更されました。再読み込み中...");
+  await syncWithConfig();
+}
+
 async function main() {
   console.error("MCP Gateway Server 起動中...");
   
-  try {
-    await Promise.race([
-      syncWithConfig(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('初回接続タイムアウト')), 30000)
-      )
-    ]);
-  } catch (error) {
-    console.error("初回接続エラー（続行）:", error);
-  }
+  // syncWithConfigは内部でエラーハンドリングするので、ここでは待つだけ
+  await syncWithConfig();
+  
+  // 設定ファイル監視を開始
+  startConfigWatcher();
   
   // 標準のstdioモード（claude-codeコンテナから使用）
   console.error("stdioモードで起動します...");

@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "proxy": "cd mcp-proxy-server && bun run server.ts",
-    "proxy:watch": "node scripts/watch-config.js",
-    "api": "cd server && bun run api-server.ts",
-    "clean": "rm -rf dist node_modules"
+    "proxy:daemon": "nohup node scripts/watch-config.js > proxy.log 2>&1 & echo $! > proxy.pid && echo 'プロキシサーバーをデーモンとして起動しました (PID: '$(cat proxy.pid)')'",
+    "proxy:stop": "[ -f proxy.pid ] && kill $(cat proxy.pid) && rm proxy.pid && echo 'プロキシサーバーを停止しました' || echo 'プロキシサーバーは起動していません'",
+    "start": "./start.sh",
+    "stop": "./stop.sh"
   },
   "devDependencies": {
     "@types/bun": "^1.2.17"

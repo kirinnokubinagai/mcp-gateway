@@ -38,6 +38,20 @@ Web UI（http://localhost:3002）でMCPサーバーが「エラー」と表示�
 
 ## 🚀 クイックスタート
 
+### 統合起動（推奨）
+```bash
+# プロキシサーバーとDockerコンテナを一括起動
+npm start
+# または
+./start.sh
+
+# 一括停止
+npm stop
+# または
+./stop.sh
+```
+
+### 個別起動
 ```bash
 # プロキシサーバーを起動（基本）
 bun run proxy:watch

@@ -27,7 +27,7 @@ export class WebSocketTransport implements Transport {
       
       // タイムアウト設定（10秒）
       const timeout = setTimeout(() => {
-        reject(new Error('WebSocket connection timeout after 10s'));
+        reject(new Error('WebSocket接続タイムアウト'));
       }, 10000);
       
       this.ws.addEventListener('open', () => {
@@ -77,10 +77,7 @@ export class WebSocketTransport implements Transport {
                     }
                   }
                 } else if (msg.type === 'stderr') {
-                  // stderrは重要なエラーのみログ
-                  if (msg.data && msg.data.includes('error')) {
-                    console.error('MCPサーバーエラー:', msg.data);
-                  }
+                  // stderrは無視（ノイズが多いため）
                 } else if (msg.type === 'exit') {
                   if (this.onclose) {
                     this.onclose();
@@ -103,15 +100,14 @@ export class WebSocketTransport implements Transport {
 
       this.ws.addEventListener('error', (event) => {
         clearTimeout(timeout);
-        console.error('WebSocketエラー:', event);
+        const error = new Error('WebSocket接続エラー');
         if (this.onerror) {
-          this.onerror(new Error('WebSocket error'));
+          this.onerror(error);
         }
-        reject(new Error('WebSocket error'));
+        reject(error);
       });
 
       this.ws.addEventListener('close', (event) => {
-        console.error(`WebSocket接続が閉じられました: code=${event.code}, reason=${event.reason}`);
         // 残りのバッファを処理
         if (this.jsonBuffer.trim()) {
           try {
@@ -120,7 +116,7 @@ export class WebSocketTransport implements Transport {
               this.onmessage(jsonRpcMessage);
             }
           } catch (e) {
-            console.error('最終バッファのパースエラー:', this.jsonBuffer.substring(0, 100));
+            // パースエラーは無視
           }
         }
         this.jsonBuffer = '';
