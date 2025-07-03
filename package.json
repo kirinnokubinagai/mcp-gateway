@@ -8,7 +8,10 @@
     "proxy:daemon": "nohup node scripts/watch-config.js > proxy.log 2>&1 & echo $! > proxy.pid && echo 'プロキシサーバーをデーモンとして起動しました (PID: '$(cat proxy.pid)')'",
     "proxy:stop": "[ -f proxy.pid ] && kill $(cat proxy.pid) && rm proxy.pid && echo 'プロキシサーバーを停止しました' || echo 'プロキシサーバーは起動していません'",
     "start": "./start.sh",
-    "stop": "./stop.sh"
+    "start:rebuild": "npm run rebuild && npm start",
+    "stop": "./stop.sh",
+    "build": "docker-compose build",
+    "rebuild": "docker-compose build --no-cache"
   },
   "devDependencies": {
     "@types/bun": "^1.2.17"

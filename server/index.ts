@@ -98,7 +98,8 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     
     mcpClients.set(name, {
       config,
-      status: 'updating'
+      status: 'updating',
+      statusMessage: '接続を確立しています...'
     });
     await updateServerStatus();
     
@@ -189,27 +190,47 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     return { success: true, tools };
   } catch (error) {
     const errorMessage = (error as Error).message;
+    let errorType = 'unknown';
+    let userFriendlyMessage = '';
     
-    // 既にエラー状態の場合はログを出力しない
-    if (!existingClient || existingClient.status !== 'error') {
-      if (errorMessage.includes('404') || errorMessage.includes('not found')) {
-        console.error(`${name}: パッケージが見つかりません`);
-      } else if (errorMessage.includes('spawn') || errorMessage.includes('ENOENT')) {
-        console.error(`${name}: コマンドが見つかりません`);
-      } else {
-        console.error(`${name}: 接続失敗`);
-      }
+    // エラーの種類を判定して、わかりやすいメッセージを設定
+    if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+      errorType = 'package_not_found';
+      userFriendlyMessage = `パッケージが見つかりません: ${config.command} ${(config.args || []).join(' ')}`;
+      console.error(`${name}: ${userFriendlyMessage}`);
+    } else if (errorMessage.includes('spawn') || errorMessage.includes('ENOENT')) {
+      errorType = 'command_not_found';
+      userFriendlyMessage = `コマンドが見つかりません: ${config.command}`;
+      console.error(`${name}: ${userFriendlyMessage}`);
+    } else if (errorMessage.includes('ECONNREFUSED')) {
+      errorType = 'connection_refused';
+      userFriendlyMessage = 'プロキシサーバーに接続できません。プロキシサーバーが起動しているか確認してください。';
+      console.error(`${name}: ${userFriendlyMessage}`);
+    } else if (errorMessage.includes('timeout')) {
+      errorType = 'timeout';
+      userFriendlyMessage = '接続がタイムアウトしました。サーバーの応答に時間がかかっています。';
+      console.error(`${name}: ${userFriendlyMessage}`);
+    } else if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
+      errorType = 'permission_denied';
+      userFriendlyMessage = '権限がありません。コマンドの実行権限を確認してください。';
+      console.error(`${name}: ${userFriendlyMessage}`);
+    } else {
+      errorType = 'connection_failed';
+      userFriendlyMessage = `接続に失敗しました: ${errorMessage}`;
+      console.error(`${name}: ${userFriendlyMessage}`);
     }
     
     mcpClients.set(name, {
       config,
       status: 'error',
-      error: errorMessage
+      error: userFriendlyMessage,
+      errorType,
+      errorDetails: errorMessage
     });
     
     await updateServerStatus();
     
-    return { success: false, error: errorMessage };
+    return { success: false, error: userFriendlyMessage };
   }
 }
 

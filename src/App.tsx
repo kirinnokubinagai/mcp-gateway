@@ -244,18 +244,18 @@ function App() {
                         <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
                           !config.enabled ? 'bg-gray-100 text-gray-600' :
                           status.status === 'connected' ? 'bg-green-100 text-green-700' :
-                          status.status === 'updating' ? 'bg-yellow-100 text-yellow-700' :
+                          status.status === 'updating' ? 'bg-blue-100 text-blue-700' :
                           'bg-red-100 text-red-700'
                         }`}>
                           <div className={`w-2 h-2 rounded-full ${
                             !config.enabled ? 'bg-gray-400' :
                             status.status === 'connected' ? 'bg-green-500' :
-                            status.status === 'updating' ? 'bg-yellow-500 animate-pulse' :
+                            status.status === 'updating' ? 'bg-blue-500 animate-pulse' :
                             'bg-red-500'
                           }`} />
                           {!config.enabled ? '無効' :
-                           status.status === 'connected' ? '接続中' : 
-                           status.status === 'updating' ? '更新中' : 'エラー'}
+                           status.status === 'connected' ? '接続済み' : 
+                           status.status === 'updating' ? '接続中...' : 'エラー'}
                         </div>
                       </div>
                       <CardDescription>
