@@ -66,7 +66,7 @@ if (!composeData.services['mcp-proxy-check']) {
       '      sh -c "\n' +
       '            if ! nc -z host.docker.internal 9999 2>/dev/null; then\n' +
       '              echo \'❌ エラー: MCPプロキシサーバーが起動していません！\'\n' +
-      '              echo \'👉 cd mcp-gateway && bun run proxy\'\n' +
+      '              echo \'👉 cd mcp-gateway && bun run proxy:daemon\'\n' +
       '              exit 1\n' +
       '            fi\n' +
       '          "',
@@ -96,17 +96,6 @@ if (composeData.services['claude-code']) {
     claudeCodeUpdated = true;
   }
   
-  // depends_onから古いmcp-gateway-serverを削除
-  if (claudeCode.depends_on) {
-    if (Array.isArray(claudeCode.depends_on)) {
-      const index = claudeCode.depends_on.indexOf('mcp-gateway-server');
-      if (index > -1) {
-        claudeCode.depends_on.splice(index, 1);
-        claudeCodeUpdated = true;
-      }
-    }
-  }
-  
   // extra_hostsに共有ゲートウェイを追加
   if (!claudeCode.extra_hosts) {
     claudeCode.extra_hosts = [];
@@ -125,10 +114,6 @@ if (composeData.services['claude-code']) {
   if (Array.isArray(claudeCode.networks)) {
     if (!claudeCode.networks.includes('shared-mcp-network')) {
       claudeCode.networks.push('shared-mcp-network');
-      claudeCodeUpdated = true;
-    }
-    if (!claudeCode.networks.includes('default')) {
-      claudeCode.networks.push('default');
       claudeCodeUpdated = true;
     }
   }
