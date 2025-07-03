@@ -89,11 +89,7 @@ function App() {
       console.log('WebSocket切断')
     }
     
-    // 定期的に設定を更新（フォールバック）
-    const interval = setInterval(fetchConfig, 30000)
-    
     return () => {
-      clearInterval(interval)
       ws.close()
     }
   }, [])
