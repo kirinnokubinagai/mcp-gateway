@@ -79,8 +79,14 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
 {
   "mcpServers": {
     "gateway": {
-      "command": "bun",
-      "args": ["run", "proxy"],
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "shared-mcp-gateway-server",
+        "bun",
+        "server/index.ts"
+      ],
       "cwd": "/path/to/mcp-gateway/mcp-proxy-server"
     }
   }

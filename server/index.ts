@@ -89,6 +89,7 @@ export async function updateServerStatus() {
 }
 
 async function connectToMCPServer(name: string, config: ServerConfig) {
+  
   try {
     // 初回接続時のみログを出力
     const existingClient = mcpClients.get(name);
@@ -139,6 +140,7 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       { capabilities: {} }
     );
     
+    // タイムアウトなしで接続を待つ
     await client.connect(transport);
     
     // 初回接続時のみログを出力
@@ -152,12 +154,7 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     const toolMapping = new Map<string, string>();
     
     try {
-      const response = await Promise.race([
-        client.listTools(),
-        new Promise<any>((_, reject) => 
-          setTimeout(() => reject(new Error('ツールリスト取得タイムアウト')), 10000)
-        )
-      ]);
+      const response = await client.listTools();
       tools = response.tools || [];
       
       // 初回接続時のみ詳細ログを出力
@@ -206,10 +203,6 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       errorType = 'connection_refused';
       userFriendlyMessage = 'プロキシサーバーに接続できません。プロキシサーバーが起動しているか確認してください。';
       console.error(`${name}: ${userFriendlyMessage}`);
-    } else if (errorMessage.includes('timeout')) {
-      errorType = 'timeout';
-      userFriendlyMessage = '接続がタイムアウトしました。サーバーの応答に時間がかかっています。';
-      console.error(`${name}: ${userFriendlyMessage}`);
     } else if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
       errorType = 'permission_denied';
       userFriendlyMessage = '権限がありません。コマンドの実行権限を確認してください。';
@@ -220,6 +213,7 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       console.error(`${name}: ${userFriendlyMessage}`);
     }
     
+    // エラーの場合は即座に失敗として扱う（リトライなし）
     mcpClients.set(name, {
       config,
       status: 'error',
@@ -466,6 +460,9 @@ async function syncWithConfig() {
   }
   await Promise.all(disconnectPromises);
   
+  // 接続処理を並列化
+  const connectionPromises = [];
+  
   for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
     const currentClient = mcpClients.get(name);
     
@@ -483,15 +480,18 @@ async function syncWithConfig() {
           await disconnectFromMCPServer(name);
         }
         
-        // 個別にエラーをキャッチして、失敗しても他のサーバーに接続を続ける
-        try {
-          await connectToMCPServer(name, serverConfig);
-        } catch (error) {
-          // エラーは内部で処理されるため、ここでは何もしない
-        }
+        // 非同期で接続を開始（並列処理）
+        connectionPromises.push(
+          connectToMCPServer(name, serverConfig).catch(error => {
+            // エラーは内部で処理されるため、ここでは何もしない
+          })
+        );
       }
     }
   }
+  
+  // 全ての接続を並列で実行（タイムアウトなし）
+  await Promise.all(connectionPromises);
   
   await updateServerStatus();
 }

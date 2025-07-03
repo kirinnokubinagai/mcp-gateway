@@ -27,7 +27,6 @@ function App() {
   const [serverStatus, setServerStatus] = useState<Record<string, ServerStatus>>({})
   const [isAddServerOpen, setIsAddServerOpen] = useState(false)
   const [editingServer, setEditingServer] = useState<string | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
   const [toolsDialogOpen, setToolsDialogOpen] = useState<string | null>(null)
   const [serverTools, setServerTools] = useState<Record<string, any[]>>({})
   const [newServer, setNewServer] = useState({
@@ -118,37 +117,46 @@ function App() {
   }
 
   const handleAddServer = async () => {
-    setIsSaving(true)
+    // 入力値の検証
+    const args = newServer.args.split(' ').filter(arg => arg)
+    let env = {}
+    
+    if (newServer.env) {
+      try {
+        env = JSON.parse(newServer.env)
+      } catch (e) {
+        alert('環境変数のJSON形式が正しくありません')
+        return
+      }
+    }
+    
+    const serverConfig = {
+      command: newServer.command,
+      args,
+      env,
+      enabled: newServer.enabled
+    }
+    
+    // 編集モードかどうかを保存
+    const isEditing = editingServer
+    const oldServerName = editingServer
+    
+    // すぐにダイアログを閉じる
+    setIsAddServerOpen(false)
+    setEditingServer(null)
+    setNewServer({ name: '', command: '', args: '', env: '', enabled: true })
+    
+    // バックグラウンドで保存処理を実行
     try {
-      const args = newServer.args.split(' ').filter(arg => arg)
-      let env = {}
-      
-      if (newServer.env) {
-        try {
-          env = JSON.parse(newServer.env)
-        } catch (e) {
-          alert('環境変数のJSON形式が正しくありません')
-          setIsSaving(false)
-          return
-        }
-      }
-      
-      const serverConfig = {
-        command: newServer.command,
-        args,
-        env,
-        enabled: newServer.enabled
-      }
-      
       let response;
       
-      if (editingServer) {
+      if (isEditing) {
         // 更新モード
         response = await fetch(`${getApiBaseUrl()}/api/servers`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            oldName: editingServer,
+            oldName: oldServerName,
             newName: newServer.name,
             ...serverConfig
           })
@@ -166,19 +174,16 @@ function App() {
       }
       
       if (response.ok) {
-        await fetchConfig()
-        setIsAddServerOpen(false)
-        setEditingServer(null)
-        setNewServer({ name: '', command: '', args: '', env: '', enabled: true })
+        // 成功時は設定を再取得
+        fetchConfig()
       } else {
+        // エラー時の処理
         const errorData = await response.json()
         alert(`エラー: ${errorData.error}`)
       }
     } catch (error) {
       console.error('サーバーの操作に失敗しました:', error)
-      alert(`エラー: ${(error as Error).message}`)
-    } finally {
-      setIsSaving(false)
+      alert(`通信エラー: ${(error as Error).message}`)
     }
   }
 
@@ -462,8 +467,8 @@ function App() {
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setIsAddServerOpen(false)}>キャンセル</Button>
-                    <Button onClick={handleAddServer} disabled={isSaving}>
-                      {isSaving ? '保存中...' : (editingServer ? '保存' : '追加')}
+                    <Button onClick={handleAddServer}>
+                      {editingServer ? '保存' : '追加'}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
