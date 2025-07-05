@@ -6,6 +6,7 @@ interface WebSocketTransportOptions {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  timeout?: number;
 }
 
 /**
@@ -25,10 +26,12 @@ export class WebSocketTransport implements Transport {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(this.options.url);
       
-      // タイムアウト設定（10秒）
+      // タイムアウト設定（デフォルト30秒）
+      const timeoutMs = this.options.timeout || 30000;
       const timeout = setTimeout(() => {
-        reject(new Error('WebSocket接続タイムアウト'));
-      }, 10000);
+        this.ws?.close();
+        reject(new Error(`WebSocket接続タイムアウト (${timeoutMs}ms): ${this.options.command}`));
+      }, timeoutMs);
       
       this.ws.addEventListener('open', () => {
         clearTimeout(timeout);

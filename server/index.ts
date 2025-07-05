@@ -34,6 +34,8 @@ interface MCPClientInfo {
   toolMapping?: Map<string, string>;
   status: 'connected' | 'error' | 'disabled' | 'updating';
   error?: string;
+  errorType?: string;
+  statusMessage?: string;
 }
 
 const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
@@ -88,7 +90,7 @@ export async function updateServerStatus() {
   await saveTools(allTools);
 }
 
-async function connectToMCPServer(name: string, config: ServerConfig) {
+async function connectToMCPServer(name: string, config: ServerConfig): Promise<any> {
   
   try {
     // 初回接続時のみログを出力
@@ -117,11 +119,13 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     const proxyUrl = process.env.MCP_PROXY_URL || `ws://${proxyHost}:${proxyPort}`;
     
     if (proxyUrl) {
+      const timeout = parseInt(process.env.MCP_CONNECTION_TIMEOUT || '30000', 10);
       transport = new WebSocketTransport({
         url: proxyUrl,
         command: expandedConfig.command,
         args: expandedConfig.args,
-        env: expandedConfig.env
+        env: expandedConfig.env,
+        timeout: timeout
       });
     } else {
       transport = new StdioClientTransport({
@@ -191,7 +195,12 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
     let userFriendlyMessage = '';
     
     // エラーの種類を判定して、わかりやすいメッセージを設定
-    if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+    if (errorMessage.includes('タイムアウト') || errorMessage.includes('timeout')) {
+      errorType = 'timeout';
+      userFriendlyMessage = `接続タイムアウト: ${config.command}が応答しません`;
+      console.error(`${name}: ${userFriendlyMessage}`);
+      
+    } else if (errorMessage.includes('404') || errorMessage.includes('not found')) {
       errorType = 'package_not_found';
       userFriendlyMessage = `パッケージが見つかりません: ${config.command} ${(config.args || []).join(' ')}`;
       console.error(`${name}: ${userFriendlyMessage}`);
@@ -213,7 +222,7 @@ async function connectToMCPServer(name: string, config: ServerConfig) {
       console.error(`${name}: ${userFriendlyMessage}`);
     }
     
-    // エラーの場合は即座に失敗として扱う（リトライなし）
+    // リトライが終了したか、リトライ対象外のエラーの場合
     mcpClients.set(name, {
       config,
       status: 'error',
