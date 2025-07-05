@@ -240,6 +240,117 @@ app.get('/api/tools', async (c) => {
   }
 });
 
+// プロファイル一覧を取得
+app.get('/api/profiles', async (c) => {
+  const config = await loadConfig();
+  return c.json({
+    profiles: config.profiles || {},
+    profileDescriptions: config.profileDescriptions || {},
+    profileDisplayNames: config.profileDisplayNames || {},
+    activeProfile: config.activeProfile || null
+  });
+});
+
+// アクティブプロファイルを設定
+app.post('/api/profiles/active', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { profile } = body;
+    
+    const config = await loadConfig();
+    config.activeProfile = profile;
+    await saveConfig(config);
+    
+    return c.json({ success: true, activeProfile: profile });
+  } catch (error) {
+    console.error('プロファイル設定エラー:', error);
+    return c.json({ error: 'プロファイルの設定に失敗しました' }, 500);
+  }
+});
+
+// プロファイルを作成・更新
+app.put('/api/profiles/:name', async (c) => {
+  try {
+    const profileName = c.req.param('name');
+    const body = await c.req.json();
+    
+    const config = await loadConfig();
+    if (!config.profiles) {
+      config.profiles = {};
+    }
+    
+    // プロファイルの構造を分けて保存
+    // サーバー設定（必須）
+    if (body.servers !== undefined) {
+      config.profiles[profileName] = body.servers;
+    } else if (!config.profiles[profileName]) {
+      // 新規作成時でserversが指定されていない場合は空オブジェクトを設定
+      config.profiles[profileName] = {};
+    }
+    
+    // 説明
+    if (body.description !== undefined) {
+      if (!config.profileDescriptions) {
+        config.profileDescriptions = {};
+      }
+      config.profileDescriptions[profileName] = body.description;
+    }
+    
+    // 表示名
+    if (body.displayName !== undefined) {
+      if (!config.profileDisplayNames) {
+        config.profileDisplayNames = {};
+      }
+      config.profileDisplayNames[profileName] = body.displayName;
+    }
+    
+    await saveConfig(config);
+    
+    // 設定変更を通知
+    await notifyConfigChange();
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('プロファイル更新エラー:', error);
+    return c.json({ error: 'プロファイルの更新に失敗しました' }, 500);
+  }
+});
+
+// プロファイルを削除
+app.delete('/api/profiles/:name', async (c) => {
+  try {
+    const profileName = c.req.param('name');
+    
+    const config = await loadConfig();
+    if (config.profiles && config.profiles[profileName]) {
+      delete config.profiles[profileName];
+      
+      // プロファイルの説明も削除
+      if (config.profileDescriptions && config.profileDescriptions[profileName]) {
+        delete config.profileDescriptions[profileName];
+      }
+      
+      // プロファイルの表示名も削除
+      if (config.profileDisplayNames && config.profileDisplayNames[profileName]) {
+        delete config.profileDisplayNames[profileName];
+      }
+      
+      // アクティブプロファイルが削除されたらdefaultに
+      if (config.activeProfile === profileName) {
+        config.activeProfile = 'default';
+      }
+      
+      await saveConfig(config);
+      await notifyConfigChange();
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('プロファイル削除エラー:', error);
+    return c.json({ error: 'プロファイルの削除に失敗しました' }, 500);
+  }
+});
+
 const port = Number(process.env.PORT) || 3003;
 
 console.log(`APIサーバー起動: http://localhost:${port}`);

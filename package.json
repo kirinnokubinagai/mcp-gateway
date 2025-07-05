@@ -10,8 +10,8 @@
     "start": "./start.sh",
     "start:rebuild": "npm run rebuild && npm start",
     "stop": "./stop.sh",
-    "build": "docker-compose build",
-    "rebuild": "docker-compose build --no-cache"
+    "build": "docker-compose build --no-cache",
+    "rebuild": "docker-compose down && docker-compose build --no-cache && docker-compose up -d"
   },
   "devDependencies": {
     "@types/bun": "^1.2.17"

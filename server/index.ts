@@ -22,7 +22,13 @@ interface ServerConfig {
   enabled: boolean;
 }
 
+interface ProfileConfig {
+  [serverName: string]: boolean;
+}
+
 interface Config {
+  profiles?: Record<string, ProfileConfig>;
+  activeProfile?: string;
   mcpServers: Record<string, ServerConfig>;
 }
 
@@ -44,12 +50,62 @@ export const mcpClients = new Map<string, MCPClientInfo>();
 async function loadConfig(): Promise<Config> {
   try {
     const data = await fs.readFile(CONFIG_FILE, 'utf-8');
-    return JSON.parse(data);
+    const config = JSON.parse(data);
+    
+    // プロファイル設定がない場合は初期化
+    if (!config.profiles) {
+      config.profiles = {
+        claude_code: {},
+        claude_desktop: {},
+        gemini_cli: {},
+        default: {}
+      };
+    }
+    
+    // 環境変数でプロファイルを上書き
+    if (process.env.MCP_PROFILE) {
+      config.activeProfile = process.env.MCP_PROFILE;
+      console.error(`環境変数からプロファイルを設定: ${process.env.MCP_PROFILE}`);
+    }
+    
+    return config;
   } catch (error) {
     console.error('設定ファイルの読み込みエラー:', error);
     // ファイルが存在しない場合は空の設定を返す（ファイルは作成しない）
-    return { mcpServers: {} };
+    return { 
+      mcpServers: {},
+      profiles: {
+        claude_code: {},
+        claude_desktop: {},
+        gemini_cli: {},
+        default: {}
+      }
+    };
   }
+}
+
+function isServerEnabledForProfile(serverName: string, config: Config): boolean {
+  // WebUI経由の場合は常にすべてのサーバーを有効化
+  if (!process.env.MCP_PROFILE) {
+    return config.mcpServers[serverName]?.enabled ?? false;
+  }
+  
+  // CLI経由（--profileフラグあり）の場合はプロファイルベースで制御
+  if (!config.activeProfile || !config.profiles) {
+    return config.mcpServers[serverName]?.enabled ?? false;
+  }
+  
+  const profile = config.profiles[config.activeProfile];
+  if (!profile) {
+    return config.mcpServers[serverName]?.enabled ?? false;
+  }
+  
+  // プロファイルに設定がある場合はそれを使用、なければ元のenabledフラグを使用
+  if (serverName in profile) {
+    return profile[serverName];
+  }
+  
+  return config.mcpServers[serverName]?.enabled ?? false;
 }
 
 function expandEnvVariables<T>(obj: T): T {
@@ -475,12 +531,14 @@ async function syncWithConfig() {
   for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
     const currentClient = mcpClients.get(name);
     
-    if (!serverConfig.enabled && currentClient) {
+    const isEnabled = isServerEnabledForProfile(name, config);
+    
+    if (!isEnabled && currentClient) {
       await disconnectFromMCPServer(name);
       continue;
     }
     
-    if (serverConfig.enabled) {
+    if (isEnabled) {
       const needsReconnect = !currentClient || 
         JSON.stringify(currentClient.config) !== JSON.stringify(serverConfig);
       
@@ -536,6 +594,15 @@ export async function notifyConfigChange() {
 
 async function main() {
   console.error("MCP Gateway Server 起動中...");
+  
+  // コマンドライン引数からプロファイルを取得
+  const args = process.argv.slice(2);
+  const profileIndex = args.findIndex(arg => arg === '--profile' || arg === '-p');
+  if (profileIndex !== -1 && args[profileIndex + 1]) {
+    const profile = args[profileIndex + 1];
+    process.env.MCP_PROFILE = profile;
+    console.error(`コマンドライン引数からプロファイルを設定: ${profile}`);
+  }
   
   // syncWithConfigは内部でエラーハンドリングするので、ここでは待つだけ
   await syncWithConfig();
