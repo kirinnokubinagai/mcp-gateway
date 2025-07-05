@@ -1,380 +1,302 @@
-/**
- * MCP Gateway エラーハンドリングモジュール
- * 
- * エラーの分類、復旧戦略、サーキットブレーカーパターンを実装
- */
+import { createLogger } from './logger.js';
 
-export interface ErrorInfo {
-  type: ErrorType;
-  message: string;
-  userMessage: string;
-  details?: string;
-  retryable: boolean;
-  maxRetries: number;
-  retryDelay: number;
-  severity: ErrorSeverity;
-}
+const logger = createLogger({ module: 'ErrorHandler' });
 
 export enum ErrorType {
-  // 一時的なエラー（復旧可能）
+  // 一時的なエラー（リトライ可能）
   TIMEOUT = 'timeout',
   CONNECTION_REFUSED = 'connection_refused',
   NETWORK_ERROR = 'network_error',
-  CONTAINER_CRASHED = 'container_crashed',
-  PROXY_UNAVAILABLE = 'proxy_unavailable',
+  CONTAINER_STOPPED = 'container_stopped',
   
-  // 永続的なエラー（復旧不可能）
+  // 永続的なエラー（リトライ不可）
   COMMAND_NOT_FOUND = 'command_not_found',
   PACKAGE_NOT_FOUND = 'package_not_found',
   PERMISSION_DENIED = 'permission_denied',
   INVALID_CONFIG = 'invalid_config',
-  AUTHENTICATION_FAILED = 'authentication_failed',
   
   // 不明なエラー
   UNKNOWN = 'unknown'
 }
 
-export enum ErrorSeverity {
-  LOW = 'low',      // 警告レベル
-  MEDIUM = 'medium', // 通常のエラー
-  HIGH = 'high',    // 重大なエラー
-  CRITICAL = 'critical' // システム停止レベル
+export interface ErrorInfo {
+  type: ErrorType;
+  message: string;
+  originalError?: Error;
+  retryable: boolean;
+  suggestedAction?: string;
 }
 
-// サーキットブレーカーの状態
-export enum CircuitState {
-  CLOSED = 'closed',     // 正常（接続を試行する）
-  OPEN = 'open',         // 異常（接続を拒否する）
-  HALF_OPEN = 'half_open' // 復旧確認中
-}
-
-export interface CircuitBreaker {
-  state: CircuitState;
-  failureCount: number;
-  lastFailureTime?: Date;
-  nextRetryTime?: Date;
-  successCount: number;
-}
-
-// サーバーごとのサーキットブレーカー
-const circuitBreakers = new Map<string, CircuitBreaker>();
-
-// エラータイプ別の復旧戦略
-const errorStrategies: Record<ErrorType, Partial<ErrorInfo>> = {
-  [ErrorType.TIMEOUT]: {
-    retryable: true,
-    maxRetries: 3,
-    retryDelay: 5000,
-    severity: ErrorSeverity.MEDIUM,
-    userMessage: '接続がタイムアウトしました。自動的に再接続を試みます。'
-  },
-  [ErrorType.CONNECTION_REFUSED]: {
-    retryable: true,
-    maxRetries: 5,
-    retryDelay: 3000,
-    severity: ErrorSeverity.HIGH,
-    userMessage: 'プロキシサーバーに接続できません。サーバーが起動しているか確認してください。'
-  },
-  [ErrorType.NETWORK_ERROR]: {
-    retryable: true,
-    maxRetries: 3,
-    retryDelay: 5000,
-    severity: ErrorSeverity.MEDIUM,
-    userMessage: 'ネットワークエラーが発生しました。接続を再試行します。'
-  },
-  [ErrorType.CONTAINER_CRASHED]: {
-    retryable: true,
-    maxRetries: 3,
-    retryDelay: 10000,
-    severity: ErrorSeverity.HIGH,
-    userMessage: 'コンテナが異常終了しました。再起動を試みます。'
-  },
-  [ErrorType.PROXY_UNAVAILABLE]: {
-    retryable: true,
-    maxRetries: 10,
-    retryDelay: 2000,
-    severity: ErrorSeverity.CRITICAL,
-    userMessage: 'プロキシサーバーが利用できません。`bun run proxy`でプロキシサーバーを起動してください。'
-  },
-  [ErrorType.COMMAND_NOT_FOUND]: {
-    retryable: false,
-    maxRetries: 0,
-    retryDelay: 0,
-    severity: ErrorSeverity.HIGH,
-    userMessage: 'コマンドが見つかりません。インストールされているか確認してください。'
-  },
-  [ErrorType.PACKAGE_NOT_FOUND]: {
-    retryable: false,
-    maxRetries: 0,
-    retryDelay: 0,
-    severity: ErrorSeverity.HIGH,
-    userMessage: 'パッケージが見つかりません。npm installまたはパッケージ名を確認してください。'
-  },
-  [ErrorType.PERMISSION_DENIED]: {
-    retryable: false,
-    maxRetries: 0,
-    retryDelay: 0,
-    severity: ErrorSeverity.HIGH,
-    userMessage: '権限がありません。実行権限を確認してください。'
-  },
-  [ErrorType.INVALID_CONFIG]: {
-    retryable: false,
-    maxRetries: 0,
-    retryDelay: 0,
-    severity: ErrorSeverity.CRITICAL,
-    userMessage: '設定が無効です。mcp-config.jsonを確認してください。'
-  },
-  [ErrorType.AUTHENTICATION_FAILED]: {
-    retryable: false,
-    maxRetries: 0,
-    retryDelay: 0,
-    severity: ErrorSeverity.HIGH,
-    userMessage: '認証に失敗しました。認証情報を確認してください。'
-  },
-  [ErrorType.UNKNOWN]: {
-    retryable: true,
-    maxRetries: 2,
-    retryDelay: 5000,
-    severity: ErrorSeverity.MEDIUM,
-    userMessage: '不明なエラーが発生しました。'
-  }
-};
-
-/**
- * エラーメッセージからエラータイプを判定
- */
-export function detectErrorType(error: Error | string): ErrorType {
-  const message = typeof error === 'string' ? error : error.message;
-  const lowerMessage = message.toLowerCase();
+export class ErrorHandler {
+  private static errorCounts = new Map<string, number>();
+  private static lastErrorTime = new Map<string, number>();
+  private static circuitBreakerState = new Map<string, 'closed' | 'open' | 'half-open'>();
   
-  if (lowerMessage.includes('timeout') || lowerMessage.includes('タイムアウト')) {
-    return ErrorType.TIMEOUT;
-  }
-  if (lowerMessage.includes('econnrefused') || lowerMessage.includes('connection refused')) {
-    return ErrorType.CONNECTION_REFUSED;
-  }
-  if (lowerMessage.includes('enetunreach') || lowerMessage.includes('network')) {
-    return ErrorType.NETWORK_ERROR;
-  }
-  if (lowerMessage.includes('container') && (lowerMessage.includes('exit') || lowerMessage.includes('crash'))) {
-    return ErrorType.CONTAINER_CRASHED;
-  }
-  if (lowerMessage.includes('proxy') && lowerMessage.includes('unavailable')) {
-    return ErrorType.PROXY_UNAVAILABLE;
-  }
-  if (lowerMessage.includes('command not found') || lowerMessage.includes('enoent') || lowerMessage.includes('spawn')) {
-    return ErrorType.COMMAND_NOT_FOUND;
-  }
-  if (lowerMessage.includes('404') || lowerMessage.includes('package not found')) {
-    return ErrorType.PACKAGE_NOT_FOUND;
-  }
-  if (lowerMessage.includes('permission') || lowerMessage.includes('eacces') || lowerMessage.includes('eperm')) {
-    return ErrorType.PERMISSION_DENIED;
-  }
-  if (lowerMessage.includes('config') || lowerMessage.includes('invalid')) {
-    return ErrorType.INVALID_CONFIG;
-  }
-  if (lowerMessage.includes('auth') || lowerMessage.includes('unauthorized')) {
-    return ErrorType.AUTHENTICATION_FAILED;
-  }
+  // サーキットブレーカーの設定
+  private static readonly CIRCUIT_BREAKER_THRESHOLD = 5; // エラー回数の閾値
+  private static readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 60秒後に半開状態に
+  private static readonly ERROR_WINDOW = 30000; // 30秒以内のエラーをカウント
   
-  return ErrorType.UNKNOWN;
-}
-
-/**
- * エラー情報を生成
- */
-export function createErrorInfo(error: Error | string, serverName?: string): ErrorInfo {
-  const errorType = detectErrorType(error);
-  const strategy = errorStrategies[errorType];
-  const errorMessage = typeof error === 'string' ? error : error.message;
-  
-  // サーバー名を含むより詳細なメッセージ
-  let userMessage = strategy.userMessage || 'エラーが発生しました。';
-  if (serverName) {
-    userMessage = `[${serverName}] ${userMessage}`;
-  }
-  
-  return {
-    type: errorType,
-    message: errorMessage,
-    userMessage,
-    details: error instanceof Error ? error.stack : undefined,
-    retryable: strategy.retryable ?? false,
-    maxRetries: strategy.maxRetries ?? 0,
-    retryDelay: strategy.retryDelay ?? 5000,
-    severity: strategy.severity ?? ErrorSeverity.MEDIUM
-  };
-}
-
-/**
- * サーキットブレーカーの取得または作成
- */
-export function getCircuitBreaker(serverName: string): CircuitBreaker {
-  if (!circuitBreakers.has(serverName)) {
-    circuitBreakers.set(serverName, {
-      state: CircuitState.CLOSED,
-      failureCount: 0,
-      successCount: 0
-    });
-  }
-  return circuitBreakers.get(serverName)!;
-}
-
-/**
- * エラー発生時のサーキットブレーカー更新
- */
-export function recordFailure(serverName: string, errorInfo: ErrorInfo): void {
-  const breaker = getCircuitBreaker(serverName);
-  breaker.failureCount++;
-  breaker.lastFailureTime = new Date();
-  breaker.successCount = 0;
-  
-  // 失敗回数が閾値を超えたらサーキットを開く
-  const threshold = errorInfo.severity === ErrorSeverity.CRITICAL ? 1 : 
-                    errorInfo.severity === ErrorSeverity.HIGH ? 3 : 5;
-  
-  if (breaker.failureCount >= threshold) {
-    breaker.state = CircuitState.OPEN;
-    // 復旧試行までの待機時間を計算（指数バックオフ）
-    const waitTime = Math.min(
-      errorInfo.retryDelay * Math.pow(2, breaker.failureCount - threshold),
-      300000 // 最大5分
-    );
-    breaker.nextRetryTime = new Date(Date.now() + waitTime);
+  static classifyError(error: Error | string): ErrorInfo {
+    const errorMessage = typeof error === 'string' ? error : error.message;
     
-    console.error(`[${serverName}] サーキットブレーカーがOPENになりました。次回再試行: ${breaker.nextRetryTime.toLocaleTimeString()}`);
+    // タイムアウトエラー
+    if (errorMessage.includes('タイムアウト') || errorMessage.includes('timeout')) {
+      return {
+        type: ErrorType.TIMEOUT,
+        message: '接続がタイムアウトしました',
+        originalError: error instanceof Error ? error : undefined,
+        retryable: true,
+        suggestedAction: 'ネットワーク接続を確認し、しばらく待ってから再試行してください'
+      };
+    }
+    
+    // 接続拒否エラー
+    if (errorMessage.includes('ECONNREFUSED')) {
+      return {
+        type: ErrorType.CONNECTION_REFUSED,
+        message: 'サーバーへの接続が拒否されました',
+        originalError: error instanceof Error ? error : undefined,
+        retryable: true,
+        suggestedAction: 'プロキシサーバーが起動しているか確認してください'
+      };
+    }
+    
+    // コマンドが見つからない
+    if (errorMessage.includes('spawn') || errorMessage.includes('ENOENT')) {
+      return {
+        type: ErrorType.COMMAND_NOT_FOUND,
+        message: 'コマンドが見つかりません',
+        originalError: error instanceof Error ? error : undefined,
+        retryable: false,
+        suggestedAction: 'コマンドがインストールされているか確認してください'
+      };
+    }
+    
+    // パッケージが見つからない
+    if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+      return {
+        type: ErrorType.PACKAGE_NOT_FOUND,
+        message: 'パッケージが見つかりません',
+        originalError: error instanceof Error ? error : undefined,
+        retryable: false,
+        suggestedAction: 'パッケージ名が正しいか確認してください'
+      };
+    }
+    
+    // 権限エラー
+    if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
+      return {
+        type: ErrorType.PERMISSION_DENIED,
+        message: '権限がありません',
+        originalError: error instanceof Error ? error : undefined,
+        retryable: false,
+        suggestedAction: 'コマンドの実行権限を確認してください'
+      };
+    }
+    
+    // コンテナ停止
+    if (errorMessage.includes('コンテナが終了') || errorMessage.includes('container stopped')) {
+      return {
+        type: ErrorType.CONTAINER_STOPPED,
+        message: 'Dockerコンテナが停止しました',
+        originalError: error instanceof Error ? error : undefined,
+        retryable: true,
+        suggestedAction: 'コンテナを再起動してください'
+      };
+    }
+    
+    // 不明なエラー
+    return {
+      type: ErrorType.UNKNOWN,
+      message: errorMessage,
+      originalError: error instanceof Error ? error : undefined,
+      retryable: true,
+      suggestedAction: 'エラーログを確認してください'
+    };
   }
-}
-
-/**
- * 成功時のサーキットブレーカー更新
- */
-export function recordSuccess(serverName: string): void {
-  const breaker = getCircuitBreaker(serverName);
-  breaker.successCount++;
   
-  // HALF_OPEN状態で成功したらCLOSEDに戻す
-  if (breaker.state === CircuitState.HALF_OPEN) {
-    breaker.state = CircuitState.CLOSED;
-    breaker.failureCount = 0;
-    console.error(`[${serverName}] サーキットブレーカーがCLOSEDになりました。正常状態に復帰。`);
-  }
-}
-
-/**
- * 接続を試行すべきかチェック
- */
-export function shouldAttemptConnection(serverName: string): boolean {
-  const breaker = getCircuitBreaker(serverName);
-  
-  if (breaker.state === CircuitState.CLOSED) {
+  static shouldRetry(serverName: string, errorInfo: ErrorInfo): boolean {
+    if (!errorInfo.retryable) {
+      return false;
+    }
+    
+    // サーキットブレーカーチェック
+    const state = this.circuitBreakerState.get(serverName);
+    if (state === 'open') {
+      const lastError = this.lastErrorTime.get(serverName) || 0;
+      if (Date.now() - lastError > this.CIRCUIT_BREAKER_TIMEOUT) {
+        // タイムアウト経過後は半開状態に
+        this.circuitBreakerState.set(serverName, 'half-open');
+        return true;
+      }
+      return false;
+    }
+    
     return true;
   }
   
-  if (breaker.state === CircuitState.OPEN) {
-    // 再試行時間に達したらHALF_OPENに移行
-    if (breaker.nextRetryTime && new Date() >= breaker.nextRetryTime) {
-      breaker.state = CircuitState.HALF_OPEN;
-      console.error(`[${serverName}] サーキットブレーカーがHALF_OPENになりました。接続を試行します。`);
-      return true;
+  static recordError(serverName: string, errorInfo: ErrorInfo) {
+    const now = Date.now();
+    const lastError = this.lastErrorTime.get(serverName) || 0;
+    
+    // エラーウィンドウ内のエラーのみカウント
+    if (now - lastError > this.ERROR_WINDOW) {
+      this.errorCounts.set(serverName, 1);
+    } else {
+      const count = (this.errorCounts.get(serverName) || 0) + 1;
+      this.errorCounts.set(serverName, count);
+      
+      // 閾値を超えたらサーキットブレーカーを開く
+      if (count >= this.CIRCUIT_BREAKER_THRESHOLD) {
+        this.circuitBreakerState.set(serverName, 'open');
+        logger.error(`サーキットブレーカー開放: ${serverName}`, undefined, { serverName, errorCount: count });
+      }
     }
-    return false;
+    
+    this.lastErrorTime.set(serverName, now);
   }
   
-  // HALF_OPEN状態では1回だけ試行を許可
-  return breaker.state === CircuitState.HALF_OPEN;
+  static recordSuccess(serverName: string) {
+    // 成功時はカウンターをリセット
+    this.errorCounts.delete(serverName);
+    this.lastErrorTime.delete(serverName);
+    
+    // サーキットブレーカーが半開状態なら閉じる
+    if (this.circuitBreakerState.get(serverName) === 'half-open') {
+      this.circuitBreakerState.set(serverName, 'closed');
+      logger.info(`サーキットブレーカー閉鎖: ${serverName}`, { serverName });
+    }
+  }
+  
+  static getRetryDelay(serverName: string, attemptNumber: number): number {
+    // 指数バックオフ: 2^n * 1000ms (最大30秒)
+    const baseDelay = Math.min(Math.pow(2, attemptNumber) * 1000, 30000);
+    
+    // ジッター追加（±20%）
+    const jitter = baseDelay * 0.2 * (Math.random() - 0.5);
+    
+    return Math.round(baseDelay + jitter);
+  }
+  
+  static formatErrorMessage(serverName: string, errorInfo: ErrorInfo): string {
+    const parts = [`[${serverName}] ${errorInfo.message}`];
+    
+    if (errorInfo.suggestedAction) {
+      parts.push(`対処法: ${errorInfo.suggestedAction}`);
+    }
+    
+    const state = this.circuitBreakerState.get(serverName);
+    if (state === 'open') {
+      parts.push('注意: 多数のエラーのため一時的に接続を停止しています');
+    }
+    
+    return parts.join('\n');
+  }
+  
+  static getCircuitBreakerStatus(serverName: string): 'closed' | 'open' | 'half-open' {
+    return this.circuitBreakerState.get(serverName) || 'closed';
+  }
+  
+  static resetCircuitBreaker(serverName: string): void {
+    this.errorCounts.delete(serverName);
+    this.lastErrorTime.delete(serverName);
+    this.circuitBreakerState.delete(serverName);
+    logger.info(`サーキットブレーカーをリセット: ${serverName}`, { serverName });
+  }
+  
+  static resetAllCircuitBreakers(): void {
+    this.errorCounts.clear();
+    this.lastErrorTime.clear();
+    this.circuitBreakerState.clear();
+    logger.info('すべてのサーキットブレーカーをリセット');
+  }
+}
+
+export enum ErrorSeverity {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  CRITICAL = 'critical'
 }
 
 /**
- * エラー復旧戦略の実行
+ * エラー情報を作成する
+ */
+export function createErrorInfo(error: Error | string, serverName?: string): ErrorInfo {
+  return ErrorHandler.classifyError(error);
+}
+
+/**
+ * 復旧戦略を実行する
  */
 export async function executeRecoveryStrategy(
   serverName: string,
   errorInfo: ErrorInfo,
-  attemptNumber: number,
-  onRetry: () => Promise<void>
-): Promise<boolean> {
-  // リトライ不可能なエラーの場合
-  if (!errorInfo.retryable) {
-    console.error(`[${serverName}] このエラーは復旧できません: ${errorInfo.type}`);
-    return false;
+  retryCount: number,
+  retryCallback: () => Promise<void>
+): Promise<void> {
+  if (!ErrorHandler.shouldRetry(serverName, errorInfo)) {
+    logger.warn(`リトライ不可: ${serverName}`, { serverName, errorType: errorInfo.type });
+    return;
   }
   
-  // 最大リトライ回数を超えた場合
-  if (attemptNumber >= errorInfo.maxRetries) {
-    console.error(`[${serverName}] 最大リトライ回数(${errorInfo.maxRetries})に達しました。`);
-    return false;
-  }
+  const delay = ErrorHandler.getRetryDelay(serverName, retryCount);
+  logger.info(`${delay}ms後に再接続を試行: ${serverName}`, { serverName, delay, retryCount });
   
-  // サーキットブレーカーチェック
-  if (!shouldAttemptConnection(serverName)) {
-    const breaker = getCircuitBreaker(serverName);
-    console.error(`[${serverName}] サーキットブレーカーがOPENです。次回再試行: ${breaker.nextRetryTime?.toLocaleTimeString()}`);
-    return false;
-  }
-  
-  // リトライ遅延（指数バックオフ）
-  const delay = errorInfo.retryDelay * Math.pow(1.5, attemptNumber);
-  console.error(`[${serverName}] ${delay}ms後に再接続を試みます... (試行 ${attemptNumber + 1}/${errorInfo.maxRetries})`);
-  
-  await new Promise(resolve => setTimeout(resolve, delay));
-  
-  try {
-    await onRetry();
-    recordSuccess(serverName);
-    return true;
-  } catch (retryError) {
-    const newErrorInfo = createErrorInfo(retryError as Error, serverName);
-    recordFailure(serverName, newErrorInfo);
-    return false;
-  }
+  setTimeout(async () => {
+    try {
+      await retryCallback();
+    } catch (error) {
+      logger.error(`再接続失敗: ${serverName}`, error, { serverName });
+    }
+  }, delay);
 }
 
 /**
- * エラー状態の詳細情報を取得
+ * 成功を記録する
  */
-export interface ErrorStatus {
-  errorType: ErrorType;
-  errorMessage: string;
-  userMessage: string;
-  severity: ErrorSeverity;
-  retryable: boolean;
-  circuitBreakerState: CircuitState;
-  failureCount: number;
-  lastFailureTime?: Date;
-  nextRetryTime?: Date;
+export function recordSuccess(serverName: string): void {
+  ErrorHandler.recordSuccess(serverName);
 }
 
-export function getErrorStatus(serverName: string, error: Error | string): ErrorStatus {
+/**
+ * 失敗を記録する
+ */
+export function recordFailure(serverName: string, errorInfo: ErrorInfo): void {
+  ErrorHandler.recordError(serverName, errorInfo);
+}
+
+/**
+ * エラーステータスを取得する
+ */
+export function getErrorStatus(serverName: string, error: string): {
+  circuitBreakerState: 'closed' | 'open' | 'half-open';
+  errorCount: number;
+  lastErrorTime?: number;
+  retryable: boolean;
+} {
   const errorInfo = createErrorInfo(error, serverName);
-  const breaker = getCircuitBreaker(serverName);
+  const circuitBreakerState = ErrorHandler.getCircuitBreakerStatus(serverName);
   
   return {
-    errorType: errorInfo.type,
-    errorMessage: errorInfo.message,
-    userMessage: errorInfo.userMessage,
-    severity: errorInfo.severity,
-    retryable: errorInfo.retryable,
-    circuitBreakerState: breaker.state,
-    failureCount: breaker.failureCount,
-    lastFailureTime: breaker.lastFailureTime,
-    nextRetryTime: breaker.nextRetryTime
+    circuitBreakerState,
+    errorCount: (ErrorHandler as any).errorCounts.get(serverName) || 0,
+    lastErrorTime: (ErrorHandler as any).lastErrorTime.get(serverName),
+    retryable: errorInfo.retryable
   };
 }
 
 /**
- * すべてのサーキットブレーカーをリセット
+ * サーキットブレーカーをリセットする
  */
-export function resetAllCircuitBreakers(): void {
-  circuitBreakers.clear();
-  console.error('すべてのサーキットブレーカーをリセットしました。');
+export function resetCircuitBreaker(serverName: string): void {
+  ErrorHandler.resetCircuitBreaker(serverName);
 }
 
 /**
- * 特定のサーバーのサーキットブレーカーをリセット
+ * すべてのサーキットブレーカーをリセットする
  */
-export function resetCircuitBreaker(serverName: string): void {
-  circuitBreakers.delete(serverName);
-  console.error(`[${serverName}] サーキットブレーカーをリセットしました。`);
+export function resetAllCircuitBreakers(): void {
+  ErrorHandler.resetAllCircuitBreakers();
 }

@@ -1,11 +1,14 @@
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { configValidator } from './config-validator.js';
+import { createLogger } from './logger.js';
 
 // @ts-ignore - ESMモジュールの互換性
 const __filename = fileURLToPath(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const logger = createLogger({ module: 'ProfileManager' });
 
 interface MCPServer {
   command: string;
@@ -51,9 +54,37 @@ export class ProfileManager {
   async loadConfig(): Promise<MCPConfig> {
     try {
       const data = await readFile(this.configPath, 'utf-8');
-      return JSON.parse(data);
+      const rawConfig = JSON.parse(data);
+      
+      // プロファイル設定かどうかを判定
+      const isProfileConfig = this.configPath.includes('mcp-config-') && 
+                             (this.configPath.includes('claude-desktop') || 
+                              this.configPath.includes('claude-code') || 
+                              this.configPath.includes('gemini-cli'));
+      
+      // 設定ファイルの検証
+      const validationResult = await configValidator.validateConfig(rawConfig, isProfileConfig);
+      
+      if (!validationResult.valid) {
+        logger.warn('設定ファイルの検証エラー', {
+          file: this.configPath,
+          errors: validationResult.errors
+        });
+        
+        // 自動修復を試みる
+        const repairResult = await configValidator.repairConfig(rawConfig, isProfileConfig);
+        if (repairResult.repaired) {
+          logger.info('設定ファイルを自動修復しました', {
+            file: this.configPath,
+            changes: repairResult.changes
+          });
+          return repairResult.config as MCPConfig;
+        }
+      }
+      
+      return (validationResult.normalized || rawConfig) as MCPConfig;
     } catch (error) {
-      console.error('設定ファイルの読み込みエラー:', error);
+      logger.error(`設定ファイルの読み込みエラー`, error as Error);
       return { mcpServers: {} };
     }
   }
@@ -66,19 +97,44 @@ export class ProfileManager {
    */
   async saveConfig(config: MCPConfig): Promise<void> {
     try {
+      // プロファイル設定かどうかを判定
+      const isProfileConfig = this.configPath.includes('mcp-config-') && 
+                             (this.configPath.includes('claude-desktop') || 
+                              this.configPath.includes('claude-code') || 
+                              this.configPath.includes('gemini-cli'));
+      
+      // 保存前に検証
+      const validationResult = await configValidator.validateConfig(config, isProfileConfig);
+      
+      if (!validationResult.valid) {
+        logger.error('保存しようとした設定が無効です', {
+          file: this.configPath,
+          errors: validationResult.errors
+        });
+        throw new Error('設定の検証に失敗しました');
+      }
+      
+      // 正規化された設定を使用
+      const normalizedConfig = validationResult.normalized || config;
+      
       // バックアップを作成
       const currentConfig = await this.loadConfig();
       await writeFile(this.backupPath, JSON.stringify(currentConfig, null, 2));
 
       // 新しい設定を保存
-      await writeFile(this.configPath, JSON.stringify(config, null, 2));
+      await writeFile(this.configPath, JSON.stringify(normalizedConfig, null, 2));
+      
+      logger.info('設定ファイルを保存しました', {
+        file: this.configPath,
+        hasWarnings: validationResult.warnings && validationResult.warnings.length > 0
+      });
     } catch (error) {
       // エラーが発生した場合はバックアップから復元を試みる
       try {
         const backup = await readFile(this.backupPath, 'utf-8');
         await writeFile(this.configPath, backup);
       } catch (restoreError) {
-        console.error('バックアップからの復元に失敗:', restoreError);
+        logger.error(`バックアップからの復元に失敗`, restoreError as Error);
       }
       throw error;
     }
@@ -125,10 +181,17 @@ export class ProfileManager {
       if (config.profiles) {
         for (const profileName in config.profiles) {
           const profile = config.profiles[profileName];
-          if (profile && typeof profile === 'object' && oldName in profile) {
-            const currentState = profile[oldName];
-            delete profile[oldName];
-            profile[newName] = preserveStates ? currentState : true;
+          if (profile && typeof profile === 'object') {
+            if (oldName in profile) {
+              // 既存の状態がある場合はそれを保持
+              const currentState = profile[oldName];
+              delete profile[oldName];
+              profile[newName] = preserveStates ? currentState : true;
+            } else if (!(newName in profile)) {
+              // 新しいサーバー名がプロファイルに存在しない場合
+              // デフォルトでfalseに設定（サーバーがONにならないように）
+              profile[newName] = false;
+            }
           }
         }
       }
@@ -137,7 +200,10 @@ export class ProfileManager {
       await this.saveConfig(config);
       return true;
     } catch (error) {
-      console.error('サーバー名変更エラー:', error);
+      logger.error(`サーバー名変更エラー`, error as Error, {
+        oldName: options.oldName,
+        newName: options.newName
+      });
       throw error;
     }
   }
@@ -234,7 +300,10 @@ export class ProfileManager {
         if (!serverNames.includes(serverName)) {
           delete profile[serverName];
           hasChanges = true;
-          console.log(`プロファイル "${profileName}" から存在しないサーバー "${serverName}" を削除`);
+          logger.info(`プロファイルから存在しないサーバーを削除`, {
+            profile: profileName,
+            server: serverName
+          });
         }
       }
 
@@ -244,7 +313,10 @@ export class ProfileManager {
         if (server.enabled === false && profile[serverName] === true) {
           profile[serverName] = false;
           hasChanges = true;
-          console.log(`プロファイル "${profileName}" のサーバー "${serverName}" を無効化`);
+          logger.info(`プロファイルのサーバーを無効化`, {
+            profile: profileName,
+            server: serverName
+          });
         }
       }
     }

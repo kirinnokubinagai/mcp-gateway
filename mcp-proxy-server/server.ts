@@ -55,6 +55,8 @@ interface ConnectionInfo {
   config: InitMessage | null;
   lastActivity: number;
   connectionId: string;
+  messageBuffer: any[];
+  flushTimer?: NodeJS.Timeout;
 }
 
 const connections = new Map<string, ConnectionInfo>();
@@ -168,7 +170,9 @@ Bun.serve({
         mcpProcess: null,
         config: null,
         lastActivity: Date.now(),
-        connectionId
+        connectionId,
+        messageBuffer: [],
+        flushTimer: undefined
       };
       
       connections.set(connectionId, connectionInfo);
@@ -286,15 +290,24 @@ Bun.serve({
             ws.send(JSON.stringify(errorMessage));
           });
 
-          // MCPサーバーからの出力をWebSocketに転送
+          // MCPサーバーからの出力をWebSocketに転送（バッファリング）
           mcpProcess.stdout?.on('data', (data: Buffer) => {
             const output = data.toString();
             console.log(`📤 stdout from ${config.command}:`, output);
-            const outputMessage: OutputMessage = {
-              type: 'stdout',
-              data: output
-            };
-            ws.send(JSON.stringify(outputMessage));
+            
+            if (connectionInfo) {
+              connectionInfo.messageBuffer.push({
+                type: 'stdout',
+                data: output
+              });
+              
+              // バッチ送信のスケジュール
+              if (!connectionInfo.flushTimer) {
+                connectionInfo.flushTimer = setTimeout(() => {
+                  flushMessageBuffer(connectionInfo);
+                }, 10);
+              }
+            }
           });
 
           mcpProcess.stderr?.on('data', (data: Buffer) => {
@@ -471,6 +484,12 @@ Bun.serve({
           }
         }
         
+        // バッファをフラッシュ
+        if (connectionInfo.flushTimer) {
+          clearTimeout(connectionInfo.flushTimer);
+          flushMessageBuffer(connectionInfo);
+        }
+        
         // 接続情報をクリア
         connections.delete(connectionId);
         console.log(`[ProxyServer] 接続を削除しました: ${connectionId}, 残り接続数: ${connections.size}`);
@@ -478,6 +497,31 @@ Bun.serve({
     }
   }
 });
+
+// メッセージバッファをフラッシュする関数
+function flushMessageBuffer(connInfo: ConnectionInfo) {
+  if (!connInfo || !connInfo.ws || connInfo.messageBuffer.length === 0) {
+    return;
+  }
+  
+  connInfo.flushTimer = undefined;
+  
+  try {
+    // 複数のメッセージを一度に送信
+    if (connInfo.messageBuffer.length === 1) {
+      connInfo.ws.send(JSON.stringify(connInfo.messageBuffer[0]));
+    } else {
+      // バッチメッセージとして送信
+      for (const msg of connInfo.messageBuffer) {
+        connInfo.ws.send(JSON.stringify(msg));
+      }
+    }
+    
+    connInfo.messageBuffer = [];
+  } catch (error) {
+    console.error('メッセージ送信エラー:', error);
+  }
+}
 
 console.error(`✨ MCPプロキシサーバーが起動しました`);
 console.log(`📍 WebSocket URL: ws://localhost:${PORT}`);

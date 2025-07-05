@@ -1,7 +1,14 @@
+/**
+ * @deprecated このモジュールは非推奨です。代わりに state-manager.ts を使用してください。
+ * This module is deprecated. Use state-manager.ts instead.
+ */
+
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createLogger } from './logger.js';
 
+const logger = createLogger({ module: 'StatusManager' });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATUS_FILE = path.join(__dirname, '../mcp-status.json');
 const TOOLS_FILE = path.join(__dirname, '../mcp-tools.json');
@@ -32,7 +39,7 @@ export async function saveStatus(status: Record<string, ServerStatus>) {
       // web-serverが起動していない場合は無視
     }
   } catch (error) {
-    console.error('ステータス保存エラー:', error);
+    logger.error(`ステータス保存エラー`, error as Error);
   }
 }
 
@@ -51,7 +58,7 @@ export async function saveTools(tools: Record<string, Tool[]>) {
   try {
     await fs.writeFile(TOOLS_FILE, JSON.stringify(tools, null, 2));
   } catch (error) {
-    console.error('ツール保存エラー:', error);
+    logger.error(`ツール保存エラー`, error as Error);
   }
 }
 

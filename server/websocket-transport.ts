@@ -1,5 +1,8 @@
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import { createLogger } from './logger.js';
+
+const logger = createLogger({ module: 'WebSocketTransport' });
 
 interface WebSocketTransportOptions {
   url: string;
@@ -11,6 +14,8 @@ interface WebSocketTransportOptions {
   reconnectDelay?: number;
   maxReconnectDelay?: number;
   pingInterval?: number;
+  enableCompression?: boolean;
+  bufferSize?: number;
 }
 
 /**
@@ -32,6 +37,8 @@ export class WebSocketTransport implements Transport {
   private pingInterval: any = null;
   private lastPingTime: number = 0;
   private connectionStartTime: number = 0;
+  private messageQueue: any[] = [];
+  private flushTimeout: NodeJS.Timeout | null = null;
   
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -42,6 +49,8 @@ export class WebSocketTransport implements Transport {
     this.options.reconnectDelay = this.options.reconnectDelay ?? 1000;
     this.options.maxReconnectDelay = this.options.maxReconnectDelay ?? 30000;
     this.options.pingInterval = this.options.pingInterval ?? 30000;
+    this.options.enableCompression = this.options.enableCompression ?? true;
+    this.options.bufferSize = this.options.bufferSize ?? 65536;
   }
 
   async start(): Promise<void> {
@@ -59,8 +68,11 @@ export class WebSocketTransport implements Transport {
           : (await import('ws')).default;
         
         const attemptNumber = this.reconnectAttempts + 1;
-        console.error(`[WebSocketTransport] 接続試行 #${attemptNumber}: ${this.options.url}`);
-        console.error(`[WebSocketTransport] コマンド: ${this.options.command} ${(this.options.args || []).join(' ')}`);
+        logger.info(`接続試行 #${attemptNumber}`, { 
+          url: this.options.url, 
+          command: this.options.command, 
+          args: this.options.args 
+        });
         
         this.ws = new WebSocket(this.options.url);
         
@@ -68,7 +80,7 @@ export class WebSocketTransport implements Transport {
         const timeoutMs = this.options.timeout || 30000;
         const timeout = setTimeout(() => {
           if (!this.isConnected) {
-            console.error(`[WebSocketTransport] 接続タイムアウト (${timeoutMs}ms)`);
+            logger.warn(`接続タイムアウト`, { timeoutMs });
             this.ws?.close();
             this.handleConnectionFailure(reject, new Error(`WebSocket接続タイムアウト (${timeoutMs}ms): ${this.options.command}`));
           }
@@ -80,7 +92,7 @@ export class WebSocketTransport implements Transport {
           this.reconnectAttempts = 0;
           
           const connectionDuration = Date.now() - this.connectionStartTime;
-          console.error(`[WebSocketTransport] ✅ 接続成功 (${connectionDuration}ms)`);
+          logger.info(`接続成功`, { connectionDuration });
           
           // Pingインターバルを開始
           this.startPingInterval();
@@ -100,13 +112,13 @@ export class WebSocketTransport implements Transport {
             
             if (message.type === 'pong') {
               const latency = Date.now() - this.lastPingTime;
-              console.error(`[WebSocketTransport] Pong受信 (latency: ${latency}ms)`);
+              logger.debug(`Pong受信`, { latency });
               return;
             }
             
             if (message.type === 'ready') {
               clearTimeout(timeout);
-              console.error('[WebSocketTransport] MCPサーバー準備完了');
+              logger.info(`MCPサーバー準備完了`);
               
               // メッセージハンドラーを設定
               this.setupMessageHandler();
@@ -114,18 +126,18 @@ export class WebSocketTransport implements Transport {
               
             } else if (message.type === 'error') {
               clearTimeout(timeout);
-              console.error(`[WebSocketTransport] エラー受信: ${message.message}`);
+              logger.error(`エラー受信: ${message.message}`);
               this.handleConnectionFailure(reject, new Error(message.message));
             }
           } catch (e) {
-            console.error('[WebSocketTransport] メッセージ解析エラー:', e);
+            logger.error(`メッセージ解析エラー`, e as Error);
           }
         });
 
         this.ws.addEventListener('error', (event: any) => {
           clearTimeout(timeout);
           const errorMessage = event.message || event.type || 'Connection failed';
-          console.error(`[WebSocketTransport] ❌ 接続エラー: ${errorMessage}`);
+          logger.error(`接続エラー: ${errorMessage}`);
           const error = new Error(`WebSocket接続エラー: ${errorMessage}`);
           
           if (!this.isConnected) {
@@ -140,13 +152,13 @@ export class WebSocketTransport implements Transport {
           this.isConnected = false;
           this.stopPingInterval();
           
-          console.error(`[WebSocketTransport] 接続終了 (code: ${event.code}, reason: ${event.reason || 'なし'})`);
+          logger.info(`接続終了`, { code: event.code, reason: event.reason || 'なし' });
           
           // 残りのバッファを処理
           this.flushBuffer();
           
           if (!this.isClosing && this.reconnectAttempts < this.options.reconnectAttempts!) {
-            console.error('[WebSocketTransport] 再接続を試行します...');
+            logger.info(`再接続を試行します`);
             this.scheduleReconnect();
           } else {
             if (this.onclose) {
@@ -155,7 +167,7 @@ export class WebSocketTransport implements Transport {
           }
         });
       } catch (error) {
-        console.error('[WebSocketTransport] 接続セットアップエラー:', error);
+        logger.error(`接続セットアップエラー`, error as Error);
         this.handleConnectionFailure(reject, error as Error);
       }
     });
@@ -168,15 +180,15 @@ export class WebSocketTransport implements Transport {
 
     const data = JSON.stringify(message) + '\n';
     
-    try {
-      // MCPメッセージをstdinとして送信
-      this.ws.send(JSON.stringify({
-        type: 'stdin',
-        data: data
-      }));
-    } catch (error) {
-      console.error('[WebSocketTransport] 送信エラー:', error);
-      throw error;
+    // メッセージをキューに追加
+    this.messageQueue.push({
+      type: 'stdin',
+      data: data
+    });
+    
+    // バッチ送信のスケジュール
+    if (!this.flushTimeout) {
+      this.flushTimeout = setTimeout(() => this.flushMessageQueue(), 10);
     }
   }
 
@@ -201,7 +213,7 @@ export class WebSocketTransport implements Transport {
         
         if (msg.type === 'pong') {
           const latency = Date.now() - this.lastPingTime;
-          console.error(`[WebSocketTransport] Pong受信 (latency: ${latency}ms)`);
+          logger.debug(`Pong受信`, { latency });
           return;
         }
         
@@ -230,16 +242,16 @@ export class WebSocketTransport implements Transport {
             }
           }
         } else if (msg.type === 'stderr' && msg.data) {
-          console.error(`[WebSocketTransport] stderr: ${msg.data}`);
+          logger.warn(`stderr: ${msg.data}`);
         } else if (msg.type === 'exit') {
-          console.error(`[WebSocketTransport] プロセス終了 (code: ${msg.code})`);
+          logger.info(`プロセス終了`, { code: msg.code });
           this.isClosing = true;
           if (this.onclose) {
             this.onclose();
           }
         }
       } catch (e) {
-        console.error('[WebSocketTransport] メッセージ処理エラー:', e);
+        logger.error(`メッセージ処理エラー`, e as Error);
       }
     });
   }
@@ -248,10 +260,10 @@ export class WebSocketTransport implements Transport {
     this.isConnected = false;
     
     if (this.reconnectAttempts < this.options.reconnectAttempts!) {
-      console.error(`[WebSocketTransport] 接続失敗、再試行予定...`);
+      logger.warn(`接続失敗、再試行予定`);
       this.scheduleReconnect();
     } else {
-      console.error(`[WebSocketTransport] 最大再試行回数に到達しました`);
+      logger.error(`最大再試行回数に到達しました`);
       if (this.onerror) {
         this.onerror(error);
       }
@@ -269,12 +281,12 @@ export class WebSocketTransport implements Transport {
       this.options.maxReconnectDelay!
     );
     
-    console.error(`[WebSocketTransport] ${delay}ms後に再接続します (試行 ${this.reconnectAttempts}/${this.options.reconnectAttempts})`);
+    logger.info(`${delay}ms後に再接続します`, { attempt: this.reconnectAttempts, maxAttempts: this.options.reconnectAttempts });
     
     setTimeout(() => {
       if (!this.isClosing) {
         this.connect().catch(error => {
-          console.error('[WebSocketTransport] 再接続失敗:', error);
+          logger.error(`再接続失敗`, error as Error);
         });
       }
     }, delay);
@@ -289,7 +301,7 @@ export class WebSocketTransport implements Transport {
         try {
           this.ws.send(JSON.stringify({ type: 'ping' }));
         } catch (error) {
-          console.error('[WebSocketTransport] Ping送信エラー:', error);
+          logger.error(`Ping送信エラー`, error as Error);
         }
       }
     }, this.options.pingInterval!);
@@ -310,9 +322,121 @@ export class WebSocketTransport implements Transport {
           this.onmessage(jsonRpcMessage);
         }
       } catch (e) {
-        console.error('[WebSocketTransport] バッファフラッシュエラー:', e);
+        logger.error(`バッファフラッシュエラー`, e as Error);
       }
     }
     this.jsonBuffer = '';
+  }
+  
+  private flushMessageQueue(): void {
+    this.flushTimeout = null;
+    
+    if (this.messageQueue.length === 0 || !this.ws || this.ws.readyState !== 1) {
+      return;
+    }
+    
+    try {
+      // 複数のメッセージをバッチで送信
+      if (this.messageQueue.length === 1) {
+        this.ws.send(JSON.stringify(this.messageQueue[0]));
+      } else {
+        // バッチメッセージとして送信
+        this.ws.send(JSON.stringify({
+          type: 'batch',
+          messages: this.messageQueue
+        }));
+      }
+      
+      this.messageQueue = [];
+    } catch (error) {
+      logger.error(`バッチ送信エラー`, error as Error);
+      // エラー時はキューを保持して再試行
+      this.flushTimeout = setTimeout(() => this.flushMessageQueue(), 100);
+    }
+  }
+
+  /**
+   * 接続の健全性をチェック
+   * 
+   * WebSocket接続が正常に動作しているかを確認します。
+   * 接続プールが死んだ接続を検出するために使用されます。
+   * 
+   * @returns 接続が健全な場合true、それ以外はfalse
+   */
+  async isHealthy(): Promise<boolean> {
+    // WebSocketが接続されていない場合
+    if (!this.ws || this.ws.readyState !== 1) {
+      return false;
+    }
+
+    // 接続フラグをチェック
+    if (!this.isConnected || this.isClosing) {
+      return false;
+    }
+
+    // Ping/Pongによる簡易的な健全性チェック
+    try {
+      // Pingを送信して応答を待つ
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          resolve(false);
+        }, 5000); // 5秒のタイムアウト
+
+        const originalLastPingTime = this.lastPingTime;
+        this.lastPingTime = Date.now();
+
+        // 一時的なメッセージハンドラーを設定
+        const handleMessage = (event: any) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'pong') {
+              clearTimeout(timeout);
+              this.ws.removeEventListener('message', handleMessage);
+              resolve(true);
+            }
+          } catch (e) {
+            // 無視
+          }
+        };
+
+        this.ws.addEventListener('message', handleMessage);
+
+        // Pingを送信
+        try {
+          this.ws.send(JSON.stringify({ type: 'ping' }));
+        } catch (error) {
+          clearTimeout(timeout);
+          this.ws.removeEventListener('message', handleMessage);
+          this.lastPingTime = originalLastPingTime;
+          resolve(false);
+        }
+      });
+    } catch (error) {
+      logger.error(`健全性チェックエラー`, error as Error);
+      return false;
+    }
+  }
+
+  /**
+   * 接続状態を取得
+   * 
+   * @returns 接続状態の詳細情報
+   */
+  getConnectionState(): {
+    isConnected: boolean;
+    isClosing: boolean;
+    readyState: number | null;
+    reconnectAttempts: number;
+    lastPingTime: number;
+    connectionDuration: number;
+  } {
+    return {
+      isConnected: this.isConnected,
+      isClosing: this.isClosing,
+      readyState: this.ws?.readyState ?? null,
+      reconnectAttempts: this.reconnectAttempts,
+      lastPingTime: this.lastPingTime,
+      connectionDuration: this.isConnected ? Date.now() - this.connectionStartTime : 0
+    };
   }
 }

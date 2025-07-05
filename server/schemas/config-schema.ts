@@ -1,0 +1,135 @@
+/**
+ * MCP Gateway設定ファイルのJSON Schema定義
+ */
+
+export const CONFIG_SCHEMA_VERSION = '1.0.0';
+
+export const serverConfigSchema = {
+  type: 'object',
+  properties: {
+    command: {
+      type: 'string',
+      minLength: 1,
+      description: '実行するコマンド'
+    },
+    args: {
+      type: 'array',
+      items: {
+        type: 'string'
+      },
+      default: [],
+      description: 'コマンドライン引数'
+    },
+    env: {
+      type: 'object',
+      additionalProperties: {
+        type: 'string'
+      },
+      default: {},
+      description: '環境変数'
+    },
+    enabled: {
+      type: 'boolean',
+      default: true,
+      description: 'サーバーの有効/無効状態'
+    }
+  },
+  required: ['command'],
+  additionalProperties: false
+};
+
+export const profileConfigSchema = {
+  type: 'object',
+  additionalProperties: {
+    type: 'boolean'
+  },
+  description: 'プロファイル内のサーバー有効/無効設定'
+};
+
+export const configSchema = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  type: 'object',
+  properties: {
+    version: {
+      type: 'string',
+      pattern: '^\\d+\\.\\d+\\.\\d+$',
+      description: '設定ファイルのバージョン'
+    },
+    profiles: {
+      type: 'object',
+      additionalProperties: profileConfigSchema,
+      default: {},
+      description: 'プロファイル設定'
+    },
+    activeProfile: {
+      type: 'string',
+      description: '現在アクティブなプロファイル'
+    },
+    mcpServers: {
+      type: 'object',
+      additionalProperties: serverConfigSchema,
+      default: {},
+      description: 'MCPサーバー設定'
+    },
+    servers: {
+      type: 'object',
+      additionalProperties: serverConfigSchema,
+      description: '旧形式のサーバー設定（mcpServersへ移行）'
+    }
+  },
+  anyOf: [
+    { required: ['mcpServers'] },
+    { required: ['servers'] }
+  ],
+  additionalProperties: false
+};
+
+export const profileBasedConfigSchema = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  type: 'object',
+  properties: {
+    version: {
+      type: 'string',
+      pattern: '^\\d+\\.\\d+\\.\\d+$',
+      description: '設定ファイルのバージョン'
+    },
+    servers: {
+      type: 'object',
+      additionalProperties: serverConfigSchema,
+      default: {},
+      description: 'プロファイル固有のサーバー設定'
+    }
+  },
+  required: ['servers'],
+  additionalProperties: false
+};
+
+/**
+ * バリデーションルール
+ */
+export const validationRules = {
+  command: {
+    patterns: {
+      node: /^(node|npx|npm|yarn|pnpm|bun)$/,
+      python: /^(python|python3|pip|pipenv|poetry)$/,
+      docker: /^(docker|docker-compose)$/,
+      system: /^(sh|bash|zsh|fish)$/
+    },
+    forbidden: [
+      'rm', 'dd', 'format', 'mkfs', 'shutdown', 'reboot',
+      'kill', 'pkill', 'killall', 'sudo', 'su'
+    ]
+  },
+  env: {
+    sensitiveKeys: [
+      'PASSWORD', 'SECRET', 'KEY', 'TOKEN', 'CREDENTIAL',
+      'API_KEY', 'ACCESS_KEY', 'PRIVATE_KEY'
+    ]
+  },
+  path: {
+    forbidden: [
+      '/etc', '/sys', '/proc', '/dev', '/boot',
+      'C:\\Windows', 'C:\\System32'
+    ]
+  }
+};
