@@ -67,6 +67,7 @@ function App() {
   const [activeProfile, setActiveProfile] = useState<string>("default");
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
+  const [tempProfileServers, setTempProfileServers] = useState<Record<string, boolean>>({});
   const [newProfileName, setNewProfileName] = useState("");
   const [newProfileId, setNewProfileId] = useState("");
   const [newProfileDescription, setNewProfileDescription] = useState("");
@@ -91,22 +92,8 @@ function App() {
 
   // APIのベースURLを取得
   const getApiBaseUrl = () => {
-    // Viteのプロキシが効く開発環境では空文字を返す
-    if (import.meta.env.DEV) {
-      return "";
-    }
-    // プロダクション環境では同じホストの3003ポートを使用
-    return `http://${window.location.hostname}:3003`;
-  };
-
-  // WebSocketのURLを取得
-  const getWsUrl = () => {
-    // プロダクション環境では同じホストの3003ポートを使用
-    if (!import.meta.env.DEV) {
-      return `ws://${window.location.hostname}:3003/ws`;
-    }
-    // 開発環境
-    return "ws://localhost:3003/ws";
+    // 常にプロキシ経由でアクセス（Viteの設定で /api/* がプロキシされる）
+    return "";
   };
 
   useEffect(() => {
@@ -114,34 +101,13 @@ function App() {
     fetchConfig();
     fetchProfiles();
 
-    // WebSocket接続
-    const ws = new WebSocket(getWsUrl());
-
-    ws.onopen = () => {
-      console.log("WebSocket接続成功");
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === "status") {
-          setServerStatus(message.data);
-        }
-      } catch (error) {
-        console.error("WebSocketメッセージエラー:", error);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocketエラー:", error);
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket切断");
-    };
+    // 定期的にステータスを更新
+    const interval = setInterval(() => {
+      fetchStatus();
+    }, 5000); // 5秒ごとに更新
 
     return () => {
-      ws.close();
+      clearInterval(interval);
     };
   }, []);
 
@@ -149,17 +115,33 @@ function App() {
     try {
       // 設定を取得
       const configResponse = await fetch(`${getApiBaseUrl()}/api/servers`);
+      if (!configResponse.ok) {
+        console.error("設定の取得に失敗しました:", configResponse.status);
+        return;
+      }
       const configData = await configResponse.json();
+      if (typeof configData !== 'object' || configData === null) {
+        console.error("無効な設定データ:", configData);
+        return;
+      }
       setServers(configData);
 
       // ステータスを取得
+      fetchStatus();
+    } catch (error) {
+      console.error("設定の取得に失敗しました:", error);
+    }
+  };
+
+  const fetchStatus = async () => {
+    try {
       const statusResponse = await fetch(`${getApiBaseUrl()}/api/status`);
       if (statusResponse.ok) {
         const statusData = await statusResponse.json();
         setServerStatus(statusData);
       }
     } catch (error) {
-      console.error("設定の取得に失敗しました:", error);
+      console.error("ステータスの取得に失敗しました:", error);
     }
   };
 
@@ -236,13 +218,13 @@ function App() {
       );
 
       if (response.ok) {
-        await fetchProfiles();
-        // 現在のプロファイルが更新された場合は設定を再読み込み
-        if (profileName === activeProfile) {
-          setTimeout(() => {
-            fetchConfig();
-          }, 1000);
-        }
+        // プロファイルと設定を両方更新
+        await Promise.all([
+          fetchProfiles(),
+          fetchConfig()
+        ]);
+        // ステータスも更新
+        await fetchStatus();
       }
     } catch (error) {
       console.error("プロファイル更新エラー:", error);
@@ -307,8 +289,20 @@ function App() {
       }
 
       if (response.ok) {
-        // 成功時は設定を再取得
-        fetchConfig();
+        // 新規作成時、現在のプロファイルにサーバーを追加
+        if (!isEditing && activeProfile !== "default") {
+          const updatedProfile = {
+            ...profiles[activeProfile],
+            [newServer.name]: true,
+          };
+          await handleUpdateProfile(activeProfile, updatedProfile);
+        } else {
+          // 編集時（名前変更なし）またはdefaultプロファイルの場合は設定のみ再取得
+          await Promise.all([
+            fetchConfig(),
+            fetchProfiles()
+          ]);
+        }
       } else {
         // エラー時の処理
         const errorData = await response.json();
@@ -329,7 +323,10 @@ function App() {
       });
 
       if (response.ok) {
-        await fetchConfig();
+        await Promise.all([
+          fetchConfig(),
+          fetchProfiles()
+        ]);
       } else {
         const errorData = await response.json();
         alert(`削除エラー: ${errorData.error}`);
@@ -358,7 +355,7 @@ function App() {
   const handleShowTools = async (serverName: string) => {
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/api/servers/${serverName}/tools`
+        `${getApiBaseUrl()}/servers/${serverName}/tools`
       );
       if (response.ok) {
         const tools = await response.json();
@@ -385,6 +382,11 @@ function App() {
   };
 
   const handleDragLeave = () => {
+    setDragOverServer(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedServer(null);
     setDragOverServer(null);
   };
 
@@ -666,7 +668,10 @@ function App() {
                                     size="sm"
                                     variant="outline"
                                     className="h-8 px-2 text-xs"
-                                    onClick={() => setEditingProfile(profile)}
+                                    onClick={() => {
+                                      setEditingProfile(profile);
+                                      setTempProfileServers(profiles[profile] || {});
+                                    }}
                                   >
                                     <Settings className="h-3 w-3 mr-1" />
                                     サーバー設定
@@ -784,7 +789,10 @@ function App() {
               <Dialog
                 open={editingProfile !== null}
                 onOpenChange={(open) => {
-                  if (!open) setEditingProfile(null);
+                  if (!open) {
+                    setEditingProfile(null);
+                    setTempProfileServers({});
+                  }
                 }}
               >
                 <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
@@ -815,13 +823,12 @@ function App() {
                         </div>
                         <Switch
                           id={`${editingProfile}-${serverName}`}
-                          checked={profiles[editingProfile]?.[serverName] ?? false}
-                          onCheckedChange={async (checked) => {
-                            const updatedProfile = {
-                              ...profiles[editingProfile],
+                          checked={tempProfileServers[serverName] ?? false}
+                          onCheckedChange={(checked) => {
+                            setTempProfileServers({
+                              ...tempProfileServers,
                               [serverName]: checked,
-                            };
-                            await handleUpdateProfile(editingProfile, updatedProfile);
+                            });
                           }}
                         />
                       </div>
@@ -830,9 +837,23 @@ function App() {
                   <DialogFooter>
                     <Button
                       variant="outline"
-                      onClick={() => setEditingProfile(null)}
+                      onClick={() => {
+                        setEditingProfile(null);
+                        setTempProfileServers({});
+                      }}
                     >
-                      閉じる
+                      キャンセル
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        if (editingProfile) {
+                          await handleUpdateProfile(editingProfile, tempProfileServers);
+                          setEditingProfile(null);
+                          setTempProfileServers({});
+                        }
+                      }}
+                    >
+                      保存
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -843,39 +864,42 @@ function App() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {Object.entries(servers)
-              .filter(([name, config]) => {
-                // プロファイルの設定を確認
-                const currentProfile = profiles[activeProfile] || {};
-                // defaultプロファイルまたはプロファイルに設定がない場合は全て表示
-                if (
-                  activeProfile === "default" ||
-                  Object.keys(currentProfile).length === 0
-                ) {
-                  return true;
-                }
-                // プロファイルで有効になっているサーバーのみ表示
-                return currentProfile[name] === true;
-              })
-              .map(([name, config]) => {
-                const status = serverStatus[name] || {
-                  status: "disabled",
-                  toolCount: 0,
-                };
-                return (
-                  <Card
-                    key={name}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, name)}
-                    onDragOver={(e) => handleDragOver(e, name)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, name)}
-                    className={`cursor-move transition-all ${
-                      dragOverServer === name ? "ring-2 ring-primary" : ""
-                    } ${draggedServer === name ? "opacity-50" : ""}`}
-                  >
+        <div className="space-y-8">
+          {/* プロファイルに含まれているサーバー */}
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Object.entries(servers)
+                .filter(([name, config]) => {
+                  // プロファイルの設定を確認
+                  const currentProfile = profiles[activeProfile] || {};
+                  // defaultプロファイルまたはプロファイルに設定がない場合は全て表示
+                  if (
+                    activeProfile === "default" ||
+                    Object.keys(currentProfile).length === 0
+                  ) {
+                    return true;
+                  }
+                  // プロファイルで有効になっているサーバーのみ表示
+                  return currentProfile[name] === true;
+                })
+                .map(([name, config]) => {
+                  const status = serverStatus[name] || {
+                    status: "disabled",
+                    toolCount: 0,
+                  };
+                  return (
+                    <Card
+                      key={name}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, name)}
+                      onDragOver={(e) => handleDragOver(e, name)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, name)}
+                      onDragEnd={handleDragEnd}
+                      className={`cursor-move transition-all ${
+                        dragOverServer === name ? "ring-2 ring-primary" : ""
+                      } ${draggedServer === name ? "opacity-50" : ""}`}
+                    >
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -984,32 +1008,32 @@ function App() {
                 );
               })}
 
-            <Dialog
-              open={isAddServerOpen}
-              onOpenChange={(open) => {
-                setIsAddServerOpen(open);
-                if (!open) {
-                  setEditingServer(null);
-                  setNewServer({
-                    name: "",
-                    command: "",
-                    args: "",
-                    env: "",
-                    enabled: true,
-                  });
-                }
-              }}
-            >
-              <DialogTrigger asChild>
-                <Card className="border-dashed cursor-pointer hover:border-primary transition-colors">
-                  <CardContent className="flex flex-col items-center justify-center h-full min-h-[200px]">
-                    <Plus className="w-12 h-12 text-primary mb-2" />
-                    <p className="text-muted-foreground">
-                      新しいMCPサーバーを追加
-                    </p>
-                  </CardContent>
-                </Card>
-              </DialogTrigger>
+              <Dialog
+                open={isAddServerOpen}
+                onOpenChange={(open) => {
+                  setIsAddServerOpen(open);
+                  if (!open) {
+                    setEditingServer(null);
+                    setNewServer({
+                      name: "",
+                      command: "",
+                      args: "",
+                      env: "",
+                      enabled: true,
+                    });
+                  }
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Card className="border-dashed cursor-pointer hover:border-primary transition-colors">
+                    <CardContent className="flex flex-col items-center justify-center h-full min-h-[200px]">
+                      <Plus className="w-12 h-12 text-primary mb-2" />
+                      <p className="text-muted-foreground">
+                        新しいMCPサーバーを追加
+                      </p>
+                    </CardContent>
+                  </Card>
+                </DialogTrigger>
               <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
@@ -1080,7 +1104,7 @@ function App() {
                     />
                   </div>
 
-                  {newServer.enabled && editingServer && (
+                  {newServer.enabled && (
                     <div className="mt-6 space-y-4">
                       <div className="relative">
                         <div className="absolute inset-0 flex items-center">
@@ -1182,7 +1206,166 @@ function App() {
                 </div>
               </DialogContent>
             </Dialog>
+            </div>
           </div>
+
+          {/* プロファイルに含まれていないサーバー */}
+          {activeProfile !== "default" && Object.keys(profiles[activeProfile] || {}).length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-lg font-semibold text-muted-foreground">利用可能なサーバー</h2>
+                <p className="text-sm text-muted-foreground">（このプロファイルに追加されていません）</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(servers)
+                  .filter(([name, config]) => {
+                    const currentProfile = profiles[activeProfile] || {};
+                    // プロファイルで無効になっているサーバーのみ表示
+                    return !currentProfile[name];
+                  })
+                  .map(([name, config]) => {
+                    const status = serverStatus[name] || {
+                      status: "disabled",
+                      toolCount: 0,
+                    };
+                    return (
+                      <Card
+                        key={name}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, name)}
+                        onDragOver={(e) => handleDragOver(e, name)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, name)}
+                        onDragEnd={handleDragEnd}
+                        className={`cursor-move transition-all ${
+                          dragOverServer === name ? "ring-2 ring-primary" : ""
+                        } ${draggedServer === name ? "opacity-50" : ""}`}
+                      >
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <GripVertical className="w-4 h-4 text-muted-foreground" />
+                              <CardTitle>{name}</CardTitle>
+                            </div>
+                            <div
+                              className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
+                                !config.enabled
+                                  ? "bg-gray-100 text-gray-600"
+                                  : status.status === "connected"
+                                  ? "bg-green-100 text-green-700"
+                                  : status.status === "updating"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              <div
+                                className={`w-2 h-2 rounded-full ${
+                                  !config.enabled
+                                    ? "bg-gray-400"
+                                    : status.status === "connected"
+                                    ? "bg-green-500"
+                                    : status.status === "updating"
+                                    ? "bg-blue-500 animate-pulse"
+                                    : "bg-red-500"
+                                }`}
+                              />
+                              {!config.enabled
+                                ? "無効"
+                                : status.status === "connected"
+                                ? "接続済み"
+                                : status.status === "updating"
+                                ? "接続中..."
+                                : "エラー"}
+                            </div>
+                          </div>
+                          <CardDescription className="mt-2">
+                            {config.command} {config.args?.join(" ")}
+                          </CardDescription>
+
+                          {(() => {
+                            const enabledProfiles = Object.entries(profiles).filter(
+                              ([profileName, profileConfig]) => {
+                                return (
+                                  profileName !== "default" &&
+                                  profileConfig &&
+                                  name in profileConfig &&
+                                  profileConfig[name] === true
+                                );
+                              }
+                            );
+
+                            if (enabledProfiles.length > 0) {
+                              return (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {enabledProfiles.map(([profileName]) => (
+                                    <span
+                                      key={profileName}
+                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary"
+                                    >
+                                      {getProfileDisplayName(profileName)}
+                                    </span>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </CardHeader>
+                        <CardContent className="pt-2">
+                          {status.toolCount > 0 && (
+                            <p
+                              className="text-sm text-muted-foreground mb-3 cursor-pointer hover:text-primary transition-colors"
+                              onClick={() => handleShowTools(name)}
+                            >
+                              ツール数: {status.toolCount} (クリックで表示)
+                            </p>
+                          )}
+                          {status.error && (
+                            <p className="text-sm text-red-600 mb-3">
+                              {status.error}
+                            </p>
+                          )}
+
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEditServer(name)}
+                            >
+                              <Settings className="w-4 h-4" />
+                              編集
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => handleDeleteServer(name)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              削除
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={async () => {
+                                const updatedProfile = {
+                                  ...profiles[activeProfile],
+                                  [name]: true,
+                                };
+                                await handleUpdateProfile(activeProfile, updatedProfile);
+                              }}
+                            >
+                              <Plus className="w-4 h-4" />
+                              追加
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

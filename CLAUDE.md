@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP Gateway is a Bun-specific gateway that integrates multiple MCP (Model Context Protocol) servers into a single interface. It allows Docker containers and Claude Desktop/Code to access multiple MCP servers through a unified WebSocket proxy.
+MCP Gateway is a sophisticated gateway system that integrates multiple MCP (Model Context Protocol) servers into a single unified interface. It provides WebSocket-based proxy functionality for Docker containers and supports multiple client profiles (Claude Desktop, Claude Code, Gemini CLI).
+
+## Runtime Requirements
+
+- **Bun**: v1.0+ (REQUIRED for proxy server - will NOT work with Node.js)
+- **Node.js**: v18+ (for watch-config.js and general development)
+- **Docker & Docker Compose**: v20+ and v2+ (for Web UI deployment)
 
 ## Key Architecture Components
 
@@ -12,7 +18,7 @@ MCP Gateway is a Bun-specific gateway that integrates multiple MCP (Model Contex
 - **Location**: `mcp-proxy-server/server.ts`
 - **Purpose**: WebSocket proxy that bridges Docker containers with MCP servers
 - **Port**: ws://localhost:9999 (configurable via MCP_PROXY_PORT)
-- **Important**: This server MUST be run with Bun runtime, not Node.js
+- **Critical**: This server MUST be run with Bun runtime due to native WebSocket implementation
 
 ### 2. Gateway MCP Server
 - **Location**: `server/index.ts`
@@ -27,11 +33,21 @@ MCP Gateway is a Bun-specific gateway that integrates multiple MCP (Model Contex
 - **Location**: `server/api-server.ts`
 - **Purpose**: REST API for managing MCP server configurations
 - **Port**: http://localhost:3003
+- **Framework**: Hono (lightweight web framework)
 
 ### 4. Web UI
 - **Location**: `src/` (React/Vite app)
 - **Purpose**: Browser-based MCP server management interface
 - **Port**: http://localhost:3002
+- **Stack**: React + TypeScript + Tailwind CSS + shadcn/ui
+
+### 5. Profile Manager
+- **Location**: `server/profile-manager.ts`
+- **Purpose**: Manages different client profiles (claude-desktop, claude-code, gemini-cli)
+- **Config Files**: 
+  - `mcp-config-claude-desktop.json`
+  - `mcp-config-claude-code.json`
+  - `mcp-config-gemini-cli.json`
 
 ## Common Development Commands
 
@@ -52,16 +68,30 @@ bun run proxy
 # Run proxy with config file watching
 bun run proxy:daemon
 
+# Start specific profile
+npm run start:claude-desktop
+npm run start:claude-code
+npm run start:gemini-cli
+
 # Build Docker containers
 docker-compose build
 
 # Rebuild without cache
 npm run rebuild
+
+# Run tests
+npm test
+
+# Type checking
+npm run typecheck
+
+# Linting
+npm run lint
 ```
 
 ## Configuration Management
 
-### mcp-config.json Structure
+### Profile-based Config Structure
 ```json
 {
   "servers": {
@@ -80,6 +110,7 @@ npm run rebuild
 ### Environment Variable Expansion
 - Supports `${ENV_VAR}` syntax in config values
 - Automatically expands environment variables in command, args, and env fields
+- Example: `"apiKey": "${OPENAI_API_KEY}"`
 
 ## WebSocket Transport Protocol
 
@@ -111,21 +142,21 @@ The proxy server implements a custom WebSocket protocol for MCP communication:
 
 ## Error Handling Patterns
 
-The gateway implements comprehensive error handling:
+The gateway implements comprehensive error handling with Japanese error messages:
 - Package not found errors
 - Command not found errors
 - Connection refused errors
 - Timeout errors
 - Permission denied errors
 
-Each error type provides user-friendly messages in Japanese.
+Each error type provides user-friendly messages and suggested solutions.
 
 ## State Management
 
 ### Status Files
 - `mcp-status.json`: Server connection statuses
 - `mcp-tools.json`: Available tools from all servers
-- Both files are updated in real-time
+- Both files are updated in real-time via WebSocket events
 
 ### Server States
 - `disabled`: Server is disabled in config
@@ -133,8 +164,9 @@ Each error type provides user-friendly messages in Japanese.
 - `connected`: Successfully connected
 - `error`: Connection failed (with detailed error info)
 
-## Testing Individual Components
+## Testing & Development
 
+### Test Individual Components
 ```bash
 # Test proxy server connection
 websocat ws://localhost:9999
@@ -149,9 +181,31 @@ curl http://localhost:3003/api/status
 curl http://localhost:3003/api/tools
 ```
 
-## Important Notes
+### Running Tests
+```bash
+# Run all tests
+npm test
 
-1. **Bun Requirement**: The proxy server (`mcp-proxy-server/`) is optimized for Bun runtime and will not work correctly with Node.js
-2. **Config Watching**: The system automatically reloads when `mcp-config.json` changes
+# Run tests in watch mode
+npm run test:watch
+
+# Run specific test file
+npm test -- path/to/test.spec.ts
+```
+
+## Important Development Notes
+
+1. **Bun Requirement**: The proxy server (`mcp-proxy-server/`) is optimized for Bun runtime and will not work correctly with Node.js due to native WebSocket implementation
+2. **Config Watching**: The system automatically reloads when profile config files change
 3. **Error States**: Web UI showing servers as "error" is normal until Claude Code connects
 4. **Docker First**: Always ensure proxy server is running before starting Docker containers
+5. **Profile Selection**: Use environment variable `MCP_PROFILE` or npm scripts to select profile
+6. **WebSocket Stability**: The proxy server includes automatic reconnection logic for dropped connections
+
+## Architecture Decisions
+
+1. **Bun for Proxy**: Chosen for superior WebSocket performance and lower memory footprint
+2. **Profile System**: Allows different configurations for different AI clients without conflicts
+3. **Status Broadcasting**: Uses WebSocket for real-time status updates instead of polling
+4. **Error Recovery**: Implements exponential backoff for connection retries
+5. **Host Command Security**: Whitelist approach prevents arbitrary command execution from containers

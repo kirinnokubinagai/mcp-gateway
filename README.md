@@ -119,7 +119,7 @@ cd /path/to/mcp-gateway
 bun start
 
 # 2. Claude Codeに追加（専用コンテナを使用）
-claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
+claude mcp add gateway -- docker exec -i shared-mcp-gateway-server bun server/index.ts
 ```
 
 注意**: 
@@ -149,7 +149,7 @@ docker compose build
 docker compose up -d
 
 # 統合先のコンテナのclaude codeにMCP Gatewayコンテナに接続
-claude mcp add gateway -- docker exec -i mcp-gateway-server bun server/index.ts
+claude mcp add gateway -- docker exec -i shared-mcp-gateway-server bun server/index.ts
 ```
 
 ### 設定の確認
@@ -241,7 +241,42 @@ bun run proxy:watch
 
 # クリーンアップ
 bun run clean
+
+# WebSocket接続の安定性テスト
+npm run test:websocket
 ```
+
+## 🛡️ WebSocket接続の安定性向上
+
+### 実装された改善点
+
+1. **自動再接続機能**
+   - 指数バックオフアルゴリズムによる再接続
+   - 最大5回まで自動的に再接続を試行
+   - 再接続間隔: 1秒から最大30秒まで段階的に増加
+
+2. **Ping/Pongによる健全性チェック**
+   - 30秒ごとに自動的にPingを送信
+   - 接続の生存確認とレイテンシー測定
+   - 応答がない場合は自動的に再接続
+
+3. **接続プール管理**
+   - 各接続に一意のIDを割り当て
+   - 5分間アクティビティがない接続は自動クリーンアップ
+   - 接続状態の詳細な追跡とログ
+
+4. **詳細なエラーハンドリング**
+   - エラータイプごとの適切な処理
+   - ユーザーフレンドリーなエラーメッセージ
+   - 自動復旧戦略の実装
+
+### 設定可能なパラメータ
+
+WebSocketTransportのオプション:
+- `reconnectAttempts`: 再接続試行回数（デフォルト: 5）
+- `reconnectDelay`: 初期再接続遅延（デフォルト: 1000ms）
+- `maxReconnectDelay`: 最大再接続遅延（デフォルト: 30000ms）
+- `pingInterval`: Ping送信間隔（デフォルト: 30000ms）
 
 ## 📚 アーキテクチャ
 
@@ -321,7 +356,7 @@ bun run clean
 
 1. ネットワーク名が正しいか確認: `docker network ls`
 2. コンテナ名が正しいか確認: `docker ps`
-3. ポートが開いているか確認: `docker port mcp-gateway-server`
+3. ポートが開いているか確認: `docker port shared-mcp-gateway-server`
 
 ## 🔗 Claude-Projectとの統合
 

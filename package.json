@@ -11,7 +11,11 @@
     "start:rebuild": "npm run rebuild && npm start",
     "stop": "./stop.sh",
     "build": "docker-compose build --no-cache",
-    "rebuild": "docker-compose down && docker-compose build --no-cache && docker-compose up -d"
+    "rebuild": "docker-compose down && docker-compose build --no-cache && docker-compose up -d",
+    "restart": "docker-compose down -v && docker-compose up -d",
+    "restart:full": "docker-compose down -v && docker-compose build --no-cache && docker-compose up -d",
+    "typecheck": "cd server && tsc --noEmit",
+    "test:websocket": "node tests/websocket-stability.test.js"
   },
   "devDependencies": {
     "@types/bun": "^1.2.17"

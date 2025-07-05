@@ -4,6 +4,8 @@ import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { notifyConfigChange } from './index.js';
+import { profileManager } from './profile-manager.js';
+import { getErrorStatus, resetCircuitBreaker, resetAllCircuitBreakers } from './error-handler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,12 +44,17 @@ app.get('/api/servers', async (c) => {
 app.post('/api/servers', async (c) => {
   try {
     const body = await c.req.json();
-    const config = await loadConfig();
+    const config = await profileManager.loadConfig();
     
     const { name, command, args, env, enabled } = body;
     
     if (!name || !command) {
       return c.json({ error: '名前とコマンドは必須です' }, 400);
+    }
+    
+    // 既に存在するサーバー名かチェック
+    if (config.mcpServers[name]) {
+      return c.json({ error: `サーバー名 "${name}" は既に使用されています` }, 400);
     }
     
     config.mcpServers[name] = {
@@ -57,7 +64,18 @@ app.post('/api/servers', async (c) => {
       enabled: enabled !== undefined ? enabled : true
     };
     
-    await saveConfig(config);
+    // 新規サーバーを全プロファイルにデフォルト状態で追加
+    if (config.profiles) {
+      for (const profileName in config.profiles) {
+        const profile = config.profiles[profileName];
+        if (profile && typeof profile === 'object') {
+          // デフォルトではenabledと同じ状態にする
+          profile[name] = enabled !== undefined ? enabled : true;
+        }
+      }
+    }
+    
+    await profileManager.saveConfig(config);
     
     // 設定変更を通知
     await notifyConfigChange();
@@ -65,7 +83,7 @@ app.post('/api/servers', async (c) => {
     return c.json({ success: true });
   } catch (error) {
     console.error('サーバー作成エラー:', error);
-    return c.json({ error: 'サーバーの作成に失敗しました' }, 500);
+    return c.json({ error: `サーバーの作成に失敗しました: ${(error as Error).message}` }, 500);
   }
 });
 
@@ -140,9 +158,7 @@ app.put('/api/servers', async (c) => {
       return c.json({ error: '更新対象のサーバー名が指定されていません' }, 400);
     }
     
-    // JSONファイルを文字列として読み込む
-    const jsonContent = await readFile(CONFIG_FILE, 'utf-8');
-    const config = JSON.parse(jsonContent);
+    const config = await profileManager.loadConfig();
     
     if (!config.mcpServers[oldName]) {
       return c.json({ error: 'サーバーが見つかりません' }, 404);
@@ -151,33 +167,50 @@ app.put('/api/servers', async (c) => {
     // 新しい名前（指定されていない場合は既存の名前を使用）
     const targetName = newName || oldName;
     
-    // 新しい設定値
-    const newValue = {
-      command: command,
-      args: args || [],
-      env: env || {},
-      enabled: enabled !== undefined ? enabled : true
-    };
-    
+    // 名前が変更される場合は、ProfileManagerを使用して全プロファイルを同期
     if (targetName !== oldName) {
-      // 名前が変更される場合、順序を保持するため新しいオブジェクトを作成
-      const orderedServers: Record<string, any> = {};
+      // まず名前を変更
+      await profileManager.renameServerAcrossProfiles({
+        oldName,
+        newName: targetName,
+        preserveStates: true
+      });
       
-      for (const [key, value] of Object.entries(config.mcpServers)) {
-        if (key === oldName) {
-          orderedServers[targetName] = newValue;
-        } else {
-          orderedServers[key] = value;
-        }
-      }
+      // 再度設定を読み込む（名前変更後）
+      const updatedConfig = await profileManager.loadConfig();
       
-      config.mcpServers = orderedServers;
+      // その他の設定（command, args, env, enabled）を更新
+      updatedConfig.mcpServers[targetName] = {
+        command: command,
+        args: args || [],
+        env: env || {},
+        enabled: enabled !== undefined ? enabled : updatedConfig.mcpServers[targetName].enabled
+      };
+      
+      await profileManager.saveConfig(updatedConfig);
     } else {
       // 名前変更なしの場合は値のみ更新
-      config.mcpServers[oldName] = newValue;
+      config.mcpServers[oldName] = {
+        command: command,
+        args: args || [],
+        env: env || {},
+        enabled: enabled !== undefined ? enabled : config.mcpServers[oldName].enabled
+      };
+      
+      // enabledが変更された場合は全プロファイルで同期
+      if (enabled !== undefined && enabled !== config.mcpServers[oldName].enabled) {
+        await profileManager.syncServerEnabledState(oldName, enabled);
+      } else {
+        await profileManager.saveConfig(config);
+      }
     }
     
-    await saveConfig(config);
+    // 整合性チェックと修復
+    const consistencyCheck = await profileManager.checkProfileConsistency();
+    if (!consistencyCheck.isConsistent) {
+      console.log('プロファイルの不整合を検出:', consistencyCheck.issues);
+      await profileManager.repairProfileConsistency();
+    }
     
     // 設定変更を通知
     await notifyConfigChange();
@@ -185,7 +218,7 @@ app.put('/api/servers', async (c) => {
     return c.json({ success: true });
   } catch (error) {
     console.error('サーバー更新エラー:', error);
-    return c.json({ error: 'サーバーの更新に失敗しました' }, 500);
+    return c.json({ error: `サーバーの更新に失敗しました: ${(error as Error).message}` }, 500);
   }
 });
 
@@ -199,14 +232,8 @@ app.delete('/api/servers', async (c) => {
       return c.json({ error: '削除対象のサーバー名が指定されていません' }, 400);
     }
     
-    const config = await loadConfig();
-    
-    if (!config.mcpServers[name]) {
-      return c.json({ error: 'サーバーが見つかりません' }, 404);
-    }
-    
-    delete config.mcpServers[name];
-    await saveConfig(config);
+    // ProfileManagerを使用して削除（全プロファイルから参照も削除）
+    await profileManager.deleteServerAcrossProfiles(name);
     
     // 設定変更を通知
     await notifyConfigChange();
@@ -214,7 +241,7 @@ app.delete('/api/servers', async (c) => {
     return c.json({ success: true });
   } catch (error) {
     console.error('サーバー削除エラー:', error);
-    return c.json({ error: 'サーバーの削除に失敗しました' }, 500);
+    return c.json({ error: `サーバーの削除に失敗しました: ${(error as Error).message}` }, 500);
   }
 });
 
@@ -237,6 +264,24 @@ app.get('/api/tools', async (c) => {
     return c.json(tools);
   } catch (error) {
     return c.json({});
+  }
+});
+
+// 特定のサーバーのツール一覧を取得
+app.get('/api/servers/:name/tools', async (c) => {
+  try {
+    const serverName = c.req.param('name');
+    const data = await readFile(TOOLS_FILE, 'utf-8');
+    const tools = JSON.parse(data);
+    
+    if (!tools[serverName]) {
+      return c.json({ error: 'サーバーのツールが見つかりません' }, 404);
+    }
+    
+    return c.json(tools[serverName]);
+  } catch (error) {
+    console.error('ツール取得エラー:', error);
+    return c.json({ error: 'ツールの取得に失敗しました' }, 500);
   }
 });
 
@@ -274,7 +319,7 @@ app.put('/api/profiles/:name', async (c) => {
     const profileName = c.req.param('name');
     const body = await c.req.json();
     
-    const config = await loadConfig();
+    const config = await profileManager.loadConfig();
     if (!config.profiles) {
       config.profiles = {};
     }
@@ -282,7 +327,12 @@ app.put('/api/profiles/:name', async (c) => {
     // プロファイルの構造を分けて保存
     // サーバー設定（必須）
     if (body.servers !== undefined) {
-      config.profiles[profileName] = body.servers;
+      // ProfileManagerを使用して状態を更新（整合性チェック付き）
+      await profileManager.updateProfileStates(profileName, body.servers);
+      
+      // 再度設定を読み込む（更新後）
+      const updatedConfig = await profileManager.loadConfig();
+      config.profiles = updatedConfig.profiles;
     } else if (!config.profiles[profileName]) {
       // 新規作成時でserversが指定されていない場合は空オブジェクトを設定
       config.profiles[profileName] = {};
@@ -304,7 +354,7 @@ app.put('/api/profiles/:name', async (c) => {
       config.profileDisplayNames[profileName] = body.displayName;
     }
     
-    await saveConfig(config);
+    await profileManager.saveConfig(config);
     
     // 設定変更を通知
     await notifyConfigChange();
@@ -312,7 +362,7 @@ app.put('/api/profiles/:name', async (c) => {
     return c.json({ success: true });
   } catch (error) {
     console.error('プロファイル更新エラー:', error);
-    return c.json({ error: 'プロファイルの更新に失敗しました' }, 500);
+    return c.json({ error: `プロファイルの更新に失敗しました: ${(error as Error).message}` }, 500);
   }
 });
 
@@ -321,7 +371,7 @@ app.delete('/api/profiles/:name', async (c) => {
   try {
     const profileName = c.req.param('name');
     
-    const config = await loadConfig();
+    const config = await profileManager.loadConfig();
     if (config.profiles && config.profiles[profileName]) {
       delete config.profiles[profileName];
       
@@ -340,7 +390,7 @@ app.delete('/api/profiles/:name', async (c) => {
         config.activeProfile = 'default';
       }
       
-      await saveConfig(config);
+      await profileManager.saveConfig(config);
       await notifyConfigChange();
     }
     
@@ -348,6 +398,84 @@ app.delete('/api/profiles/:name', async (c) => {
   } catch (error) {
     console.error('プロファイル削除エラー:', error);
     return c.json({ error: 'プロファイルの削除に失敗しました' }, 500);
+  }
+});
+
+// プロファイルの整合性チェック
+app.get('/api/profiles/consistency', async (c) => {
+  try {
+    const result = await profileManager.checkProfileConsistency();
+    return c.json(result);
+  } catch (error) {
+    console.error('整合性チェックエラー:', error);
+    return c.json({ error: '整合性チェックに失敗しました' }, 500);
+  }
+});
+
+// プロファイルの整合性を修復
+app.post('/api/profiles/repair', async (c) => {
+  try {
+    await profileManager.repairProfileConsistency();
+    const result = await profileManager.checkProfileConsistency();
+    return c.json({ success: true, consistency: result });
+  } catch (error) {
+    console.error('整合性修復エラー:', error);
+    return c.json({ error: '整合性の修復に失敗しました' }, 500);
+  }
+});
+
+// エラー状態の詳細を取得
+app.get('/api/errors/:serverName', async (c) => {
+  try {
+    const serverName = c.req.param('serverName');
+    const statusData = await readFile(STATUS_FILE, 'utf-8');
+    const status = JSON.parse(statusData);
+    
+    if (status[serverName] && status[serverName].error) {
+      const errorStatus = getErrorStatus(serverName, status[serverName].error);
+      return c.json({
+        serverName,
+        ...errorStatus,
+        currentError: status[serverName].error,
+        retryCount: status[serverName].retryCount || 0
+      });
+    }
+    
+    return c.json({ serverName, status: 'no_error' });
+  } catch (error) {
+    console.error('エラー状態取得エラー:', error);
+    return c.json({ error: 'エラー状態の取得に失敗しました' }, 500);
+  }
+});
+
+// サーキットブレーカーをリセット
+app.post('/api/errors/:serverName/reset', async (c) => {
+  try {
+    const serverName = c.req.param('serverName');
+    resetCircuitBreaker(serverName);
+    
+    // 設定変更を通知して再接続を試行
+    await notifyConfigChange();
+    
+    return c.json({ success: true, message: `${serverName}のサーキットブレーカーをリセットしました` });
+  } catch (error) {
+    console.error('サーキットブレーカーリセットエラー:', error);
+    return c.json({ error: 'サーキットブレーカーのリセットに失敗しました' }, 500);
+  }
+});
+
+// すべてのサーキットブレーカーをリセット
+app.post('/api/errors/reset-all', async (c) => {
+  try {
+    resetAllCircuitBreakers();
+    
+    // 設定変更を通知して再接続を試行
+    await notifyConfigChange();
+    
+    return c.json({ success: true, message: 'すべてのサーキットブレーカーをリセットしました' });
+  } catch (error) {
+    console.error('全サーキットブレーカーリセットエラー:', error);
+    return c.json({ error: '全サーキットブレーカーのリセットに失敗しました' }, 500);
   }
 });
 

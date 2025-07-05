@@ -1,5 +1,4 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -10,8 +9,19 @@ import fs from 'fs/promises';
 import { watch } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createHash } from 'crypto';
 import { saveStatus, saveTools } from './status-manager.js';
 import { WebSocketTransport } from './websocket-transport.js';
+import {
+  createErrorInfo,
+  executeRecoveryStrategy,
+  recordSuccess,
+  recordFailure,
+  getErrorStatus,
+  resetCircuitBreaker,
+  ErrorType,
+  ErrorSeverity
+} from './error-handler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,14 +44,18 @@ interface Config {
 
 interface MCPClientInfo {
   client?: Client;
-  transport?: WebSocketTransport | StdioClientTransport;
+  transport?: WebSocketTransport | any;
   config: ServerConfig;
+  configHash?: string;
   tools?: any[];
   toolMapping?: Map<string, string>;
   status: 'connected' | 'error' | 'disabled' | 'updating';
   error?: string;
   errorType?: string;
   statusMessage?: string;
+  errorDetails?: any;
+  retryCount?: number;
+  lastRetryTime?: Date;
 }
 
 const CONFIG_FILE = path.join(__dirname, '../mcp-config.json');
@@ -125,6 +139,76 @@ function expandEnvVariables<T>(obj: T): T {
   return obj;
 }
 
+/**
+ * 設定オブジェクトのハッシュ値を計算する
+ * 
+ * ServerConfigオブジェクトの内容をJSON文字列化し、SHA256ハッシュを生成します。
+ * このハッシュ値は設定の変更検出に使用されます。
+ * 環境変数は展開前の状態でハッシュ化され、enabledフラグは含まれません。
+ * 
+ * @param config - ハッシュ値を計算する設定オブジェクト
+ * @returns SHA256ハッシュ値の16進数文字列
+ */
+function calculateConfigHash(config: ServerConfig): string {
+  // enabledフラグは除外（プロファイルで制御されるため）
+  const normalizedConfig = {
+    command: config.command,
+    args: config.args || [],
+    env: config.env || {}
+  };
+  
+  // ソートされたキーで確定的なJSON文字列を生成
+  const configString = JSON.stringify(normalizedConfig, null, 0);
+  return createHash('sha256').update(configString).digest('hex');
+}
+
+/**
+ * Dockerイメージ名を抽出する
+ * 
+ * Dockerコマンドの引数リストからイメージ名を抽出します。
+ * オプションフラグとその値を正確にスキップし、イメージ名を特定します。
+ * 
+ * @param args - Dockerコマンドの引数リスト
+ * @returns イメージ名、見つからない場合はnull
+ */
+function extractDockerImageName(args: string[]): string | null {
+  if (!args) return null;
+  
+  // 'run'コマンドの位置を探す
+  const runIndex = args.indexOf('run');
+  if (runIndex === -1) return null;
+  
+  // 値を取るオプションのセット
+  const optionsWithValue = new Set([
+    '--name', '--memory', '--cpus', '--network', '--user',
+    '-e', '--env', '-v', '--volume', '--workdir', '-w',
+    '--entrypoint', '--hostname', '-h', '--label', '-l',
+    '--log-driver', '--log-opt', '--mount', '--publish', '-p'
+  ]);
+  
+  // 'run'以降の引数からイメージ名を探す
+  for (let i = runIndex + 1; i < args.length; i++) {
+    const arg = args[i];
+    
+    // オプションフラグはスキップ
+    if (arg.startsWith('-')) {
+      // 値を取るオプションの場合は次の引数もスキップ
+      if (optionsWithValue.has(arg)) {
+        i++;
+      } else if (arg.includes('=')) {
+        // --option=value 形式は単独でスキップ
+        continue;
+      }
+      continue;
+    }
+    
+    // ここに到達した最初の非オプション引数がイメージ名
+    return arg;
+  }
+  
+  return null;
+}
+
 export async function updateServerStatus() {
   const status: Record<string, any> = {};
   const allTools: Record<string, any[]> = {};
@@ -149,51 +233,99 @@ export async function updateServerStatus() {
 async function connectToMCPServer(name: string, config: ServerConfig): Promise<any> {
   
   try {
-    // 初回接続時のみログを出力
+    // 既存の接続をクリーンアップ
     const existingClient = mcpClients.get(name);
+    if (existingClient) {
+      console.error(`既存の接続をクリーンアップ: ${name}`);
+      if (existingClient.client) {
+        try {
+          await existingClient.client.close();
+        } catch (e) {
+          // エラーは無視
+        }
+      }
+      if (existingClient.transport) {
+        try {
+          await existingClient.transport.close();
+        } catch (e) {
+          // エラーは無視
+        }
+      }
+    }
+    
+    // 初回接続時のみログを出力
     if (!existingClient || existingClient.status !== 'error') {
       console.error(`MCPサーバーに接続中: ${name}`);
     }
     
     mcpClients.set(name, {
       config,
+      configHash: calculateConfigHash(config),
       status: 'updating',
       statusMessage: '接続を確立しています...'
     });
     await updateServerStatus();
     
-    const expandedConfig = {
+    let expandedConfig = {
       command: expandEnvVariables(config.command),
       args: expandEnvVariables(config.args || []),
       env: expandEnvVariables(config.env || {})
     };
     
-    let transport;
-    
+    // 常にプロキシサーバー経由で接続
     const proxyPort = process.env.MCP_PROXY_PORT || '9999';
-    const proxyHost = process.env.DOCKER_ENV ? 'host.docker.internal' : 'localhost';
-    const proxyUrl = process.env.MCP_PROXY_URL || `ws://${proxyHost}:${proxyPort}`;
+    const proxyHost = 'host.docker.internal';
+    const proxyUrl = `ws://${proxyHost}:${proxyPort}`;
     
-    if (proxyUrl) {
-      const timeout = parseInt(process.env.MCP_CONNECTION_TIMEOUT || '30000', 10);
-      transport = new WebSocketTransport({
-        url: proxyUrl,
-        command: expandedConfig.command,
-        args: expandedConfig.args,
-        env: expandedConfig.env,
-        timeout: timeout
-      });
-    } else {
-      transport = new StdioClientTransport({
-        command: expandedConfig.command,
-        args: expandedConfig.args,
-        env: { 
-          ...process.env, 
-          ...expandedConfig.env,
-          PATH: process.env.HOST_PATH || process.env.PATH
-        } as Record<string, string>,
-      });
-    }
+    console.error(`プロキシ設定:`, {
+      proxyHost,
+      proxyUrl,
+      command: expandedConfig.command
+    });
+    
+    const timeout = parseInt(process.env.MCP_CONNECTION_TIMEOUT || '30000', 10);
+    console.error(`WebSocketTransportを使用: ${proxyUrl}`);
+    const transport = new WebSocketTransport({
+      url: proxyUrl,
+      command: expandedConfig.command,
+      args: expandedConfig.args,
+      env: expandedConfig.env,
+      timeout: timeout,
+      reconnectAttempts: 5,
+      reconnectDelay: 1000,
+      maxReconnectDelay: 30000,
+      pingInterval: 30000
+    });
+    
+    // WebSocket切断時の処理
+    transport.onclose = async () => {
+      console.error(`${name}: WebSocket接続が切断されました`);
+      const clientInfo = mcpClients.get(name);
+      if (clientInfo && clientInfo.status === 'connected') {
+        mcpClients.set(name, {
+          ...clientInfo,
+          status: 'error',
+          error: 'コンテナが終了しました'
+        });
+        await updateServerStatus();
+        
+        // エラー情報を作成
+        const errorInfo = createErrorInfo('コンテナが終了しました', name);
+        recordFailure(name, errorInfo);
+        
+        // 復旧戦略を実行
+        if (errorInfo.retryable) {
+          executeRecoveryStrategy(name, errorInfo, clientInfo.retryCount || 0, async () => {
+            const currentConfig = await loadConfig();
+            const serverConfig = currentConfig.mcpServers[name];
+            if (serverConfig && isServerEnabledForProfile(name, currentConfig)) {
+              console.error(`${name}: 自動再接続を開始します`);
+              await connectToMCPServer(name, serverConfig, (clientInfo.retryCount || 0) + 1);
+            }
+          });
+        }
+      }
+    };
     
     const client = new Client(
       { name: `gateway-to-${name}`, version: "1.0.0" },
@@ -237,6 +369,7 @@ async function connectToMCPServer(name: string, config: ServerConfig): Promise<a
       client,
       transport,
       config,
+      configHash: calculateConfigHash(config),
       tools,
       toolMapping,
       status: 'connected'
@@ -281,6 +414,7 @@ async function connectToMCPServer(name: string, config: ServerConfig): Promise<a
     // リトライが終了したか、リトライ対象外のエラーの場合
     mcpClients.set(name, {
       config,
+      configHash: calculateConfigHash(config),
       status: 'error',
       error: userFriendlyMessage,
       errorType,
@@ -493,6 +627,14 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+/**
+ * MCPサーバーから切断する
+ * 
+ * 指定されたMCPサーバーとの接続を終了し、関連するプロセスをクリーンアップします。
+ * WebSocket接続の場合はWebSocketも閉じます。
+ * 
+ * @param name - 切断するMCPサーバーの名前
+ */
 async function disconnectFromMCPServer(name: string) {
   const clientInfo = mcpClients.get(name);
   if (clientInfo && clientInfo.client) {
@@ -512,55 +654,237 @@ async function disconnectFromMCPServer(name: string) {
   }
 }
 
+/**
+ * 設定ファイルとの同期を行う
+ * 
+ * 設定ファイルの内容と現在の接続状態を比較し、必要最小限の変更のみを適用します。
+ * サーバー名の変更を検出し、不要な再接続を避けるため設定のハッシュ値を使用します。
+ */
 async function syncWithConfig() {
   const config = await loadConfig();
   const currentServers = new Set(mcpClients.keys());
   const configServers = new Set(Object.keys(config.mcpServers));
   
-  const disconnectPromises = [];
-  for (const name of currentServers) {
-    if (!configServers.has(name)) {
-      disconnectPromises.push(disconnectFromMCPServer(name));
-    }
-  }
-  await Promise.all(disconnectPromises);
+  console.error("\n=== 設定同期開始 ===");
+  console.error(`現在の接続数: ${currentServers.size}`);
+  console.error(`設定のサーバー数: ${configServers.size}`);
   
-  // 接続処理を並列化
-  const connectionPromises = [];
+  // 並列処理用のタスクリスト
+  const disconnectTasks: Promise<void>[] = [];
+  const connectTasks: Promise<any>[] = [];
+  const updateTasks: { name: string, action: () => Promise<any> }[] = [];
   
+  // 1. サーバー名の変更を検出（ハッシュ値とDockerイメージ名で比較）
+  const renamedServers = new Map<string, string>(); // oldName -> newName
+  const processedConfigs = new Set<string>(); // 処理済みの設定名を追跡
+  
+  // 設定のハッシュマップを事前に計算
+  const configHashMap = new Map<string, string>();
   for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
-    const currentClient = mcpClients.get(name);
-    
-    const isEnabled = isServerEnabledForProfile(name, config);
-    
-    if (!isEnabled && currentClient) {
-      await disconnectFromMCPServer(name);
-      continue;
-    }
-    
-    if (isEnabled) {
-      const needsReconnect = !currentClient || 
-        JSON.stringify(currentClient.config) !== JSON.stringify(serverConfig);
-      
-      if (needsReconnect) {
-        if (currentClient) {
-          await disconnectFromMCPServer(name);
+    configHashMap.set(name, calculateConfigHash(serverConfig));
+  }
+  
+  for (const [currentName, clientInfo] of mcpClients.entries()) {
+    if (!configServers.has(currentName)) {
+      // 現在の名前が設定に存在しない場合、同じ設定を持つサーバーを探す
+      for (const [configName, serverConfig] of Object.entries(config.mcpServers)) {
+        // すでに接続があるか、処理済みの設定はスキップ
+        if (mcpClients.has(configName) || processedConfigs.has(configName)) {
+          continue;
         }
         
-        // 非同期で接続を開始（並列処理）
-        connectionPromises.push(
-          connectToMCPServer(name, serverConfig).catch(error => {
-            // エラーは内部で処理されるため、ここでは何もしない
-          })
-        );
+        // Dockerコンテナの場合は特別な処理
+        if (clientInfo.config.command === 'docker' && serverConfig.command === 'docker' &&
+            clientInfo.config.args?.includes('run') && serverConfig.args?.includes('run')) {
+          const currentImage = extractDockerImageName(clientInfo.config.args || []);
+          const configImage = extractDockerImageName(serverConfig.args || []);
+          
+          if (currentImage && configImage && currentImage === configImage) {
+            console.error(`  [名前変更] Docker: ${currentName} → ${configName} (イメージ: ${currentImage})`);
+            renamedServers.set(currentName, configName);
+            processedConfigs.add(configName);
+            break;
+          }
+        } else {
+          // 通常のサーバーはハッシュ値で比較
+          const configHash = configHashMap.get(configName)!;
+          if (clientInfo.configHash === configHash) {
+            console.error(`  [名前変更] ${currentName} → ${configName} (設定が同一)`);
+            renamedServers.set(currentName, configName);
+            processedConfigs.add(configName);
+            break;
+          }
+        }
       }
     }
   }
   
-  // 全ての接続を並列で実行（タイムアウトなし）
-  await Promise.all(connectionPromises);
+  // 2. 名前変更されたサーバーの接続を移行（即座に実行）
+  if (renamedServers.size > 0) {
+    console.error("\n名前変更されたサーバーの移行:");
+    for (const [oldName, newName] of renamedServers.entries()) {
+      const clientInfo = mcpClients.get(oldName)!;
+      const newConfig = config.mcpServers[newName];
+      const newHash = configHashMap.get(newName)!;
+      
+      // 設定が実際に変更されているか確認
+      const configChanged = clientInfo.configHash !== newHash;
+      
+      mcpClients.delete(oldName);
+      mcpClients.set(newName, {
+        ...clientInfo,
+        config: newConfig,
+        configHash: newHash
+      });
+      
+      console.error(`  ${oldName} → ${newName} ${configChanged ? '(設定も変更あり)' : '(名前のみ変更)'}`);
+      
+      // 設定が変更されている場合は再接続が必要
+      if (configChanged && isServerEnabledForProfile(newName, config)) {
+        updateTasks.push({
+          name: newName,
+          action: async () => {
+            await disconnectFromMCPServer(newName);
+            await connectToMCPServer(newName, newConfig, 0);
+          }
+        });
+      }
+    }
+  }
+  
+  // 3. 削除されたサーバーの切断
+  const serversToDelete = Array.from(currentServers).filter(
+    name => !configServers.has(name) && !renamedServers.has(name)
+  );
+  
+  if (serversToDelete.length > 0) {
+    console.error("\n削除されたサーバー:");
+    for (const name of serversToDelete) {
+      console.error(`  [削除] ${name}`);
+      disconnectTasks.push(disconnectFromMCPServer(name));
+    }
+  }
+  
+  // 4. 各サーバーの接続状態を確認
+  const statusChanges = {
+    toDisable: [] as string[],
+    toAdd: [] as string[],
+    toUpdate: [] as string[],
+    toReconnect: [] as string[],
+    unchanged: [] as string[]
+  };
+  
+  for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
+    // 名前変更で処理済みのサーバーはスキップ
+    if (processedConfigs.has(name) && !updateTasks.some(t => t.name === name)) {
+      continue;
+    }
+    
+    const currentClient = mcpClients.get(name);
+    const isEnabled = isServerEnabledForProfile(name, config);
+    
+    if (!isEnabled && currentClient) {
+      statusChanges.toDisable.push(name);
+      disconnectTasks.push(disconnectFromMCPServer(name));
+      continue;
+    }
+    
+    if (isEnabled) {
+      const newConfigHash = configHashMap.get(name)!;
+      
+      // 新規接続が必要な場合
+      if (!currentClient) {
+        statusChanges.toAdd.push(name);
+        connectTasks.push(
+          connectToMCPServer(name, serverConfig, 0).catch(error => {
+            console.error(`${name} の接続に失敗:`, error);
+          })
+        );
+      }
+      // 設定が変更された場合（ハッシュ値で比較）
+      else if (currentClient.configHash !== newConfigHash) {
+        statusChanges.toUpdate.push(name);
+        updateTasks.push({
+          name,
+          action: async () => {
+            await disconnectFromMCPServer(name);
+            await connectToMCPServer(name, serverConfig, 0).catch(error => {
+              console.error(`${name} の再接続に失敗:`, error);
+            });
+          }
+        });
+      }
+      // 設定は同じだがエラー状態の場合
+      else if (currentClient.status === 'error') {
+        statusChanges.toReconnect.push(name);
+        // サーキットブレーカーをリセットして再接続を試行
+        resetCircuitBreaker(name);
+        connectTasks.push(
+          connectToMCPServer(name, serverConfig, 0).catch(error => {
+            console.error(`${name} の再接続に失敗:`, error);
+          })
+        );
+      }
+      // 設定が同じで接続も正常な場合
+      else {
+        statusChanges.unchanged.push(name);
+        // enabled フラグのみ更新（プロファイル変更対応）
+        if (currentClient.config.enabled !== serverConfig.enabled) {
+          currentClient.config.enabled = serverConfig.enabled;
+        }
+      }
+    }
+  }
+  
+  // 変更サマリーを表示
+  console.error("\n変更サマリー:");
+  if (statusChanges.toDisable.length > 0) {
+    console.error(`  [無効化] ${statusChanges.toDisable.join(', ')}`);
+  }
+  if (statusChanges.toAdd.length > 0) {
+    console.error(`  [新規追加] ${statusChanges.toAdd.join(', ')}`);
+  }
+  if (statusChanges.toUpdate.length > 0) {
+    console.error(`  [設定変更] ${statusChanges.toUpdate.join(', ')}`);
+  }
+  if (statusChanges.toReconnect.length > 0) {
+    console.error(`  [再接続] ${statusChanges.toReconnect.join(', ')}`);
+  }
+  if (statusChanges.unchanged.length > 0) {
+    console.error(`  [変更なし] ${statusChanges.unchanged.length}個のサーバー`);
+  }
+  
+  // 5. すべてのタスクを実行
+  const totalTasks = disconnectTasks.length + connectTasks.length + updateTasks.length;
+  
+  if (totalTasks === 0) {
+    console.error("\n変更はありません。");
+  } else {
+    console.error(`\n実行するタスク: 合計 ${totalTasks}個`);
+    
+    // 切断タスクを先に実行
+    if (disconnectTasks.length > 0) {
+      console.error(`切断タスクを実行中... (${disconnectTasks.length}個)`);
+      await Promise.all(disconnectTasks);
+    }
+    
+    // 更新タスク（切断→再接続）を順次実行
+    if (updateTasks.length > 0) {
+      console.error(`更新タスクを実行中... (${updateTasks.length}個)`);
+      for (const task of updateTasks) {
+        await task.action();
+      }
+    }
+    
+    // 新規接続タスクを並列実行
+    if (connectTasks.length > 0) {
+      console.error(`接続タスクを実行中... (${connectTasks.length}個)`);
+      await Promise.all(connectTasks);
+    }
+  }
   
   await updateServerStatus();
+  console.error("\n=== 設定同期完了 ===");
 }
 
 
