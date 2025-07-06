@@ -14,6 +14,8 @@ export interface ProfileConfig {
 }
 
 export interface Config {
+  version?: string;
+  servers?: Record<string, ServerConfig>;
   profiles?: Record<string, ProfileConfig>;
   activeProfile?: string;
   mcpServers: Record<string, ServerConfig>;
@@ -46,4 +48,17 @@ export interface ServerStatus {
   status: 'connected' | 'error' | 'disabled' | 'updating';
   toolCount: number;
   error?: string;
+}
+
+export interface ValidationError {
+  type: 'error' | 'warning';
+  path: string;
+  message: string;
+  value?: any;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
+  suggestions?: string[];
 }

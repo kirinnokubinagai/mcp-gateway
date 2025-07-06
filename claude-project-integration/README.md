@@ -3,11 +3,13 @@
 ## 統合方法
 
 ### 方法1: integrate.sh（Docker Compose拡張ファイル使用）
+
 ```bash
 ./integrate.sh ~/Claude-Project docker-compose-base.yml
 ```
 
 ### 方法2: integrate-properly.sh（Docker Composeファイルに直接追加）
+
 ```bash
 ./integrate-properly.sh ~/Claude-Project docker-compose-base.yml
 ```

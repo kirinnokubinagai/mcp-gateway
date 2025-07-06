@@ -13,12 +13,14 @@
 ```
 
 **実行内容:**
+
 - プロジェクトごとのMCP Gatewayサービスを削除
 - claude-codeサービスを共有MCP Gatewayに接続するよう設定
 - 共有ネットワーク (shared-mcp-network) を追加
 - 必要な環境変数を.envファイルに追加
 
 **例:**
+
 ```bash
 cd ~/Claude-Project/mcp-gateway
 ./integrate.ts ~/Claude-Project/docker-compose-base.yml
@@ -33,12 +35,14 @@ Docker ComposeファイルからMCP Gateway関連の設定をすべて削除し�
 ```
 
 **実行内容:**
+
 - MCP Gatewayサービスを削除
 - claude-codeサービスからMCP Gateway関連設定を削除
 - 共有ネットワーク設定を削除
 - .envファイルからMCP Gateway環境変数を削除
 
 **例:**
+
 ```bash
 cd ~/Claude-Project/mcp-gateway
 ./remove.ts ~/Claude-Project/docker-compose-base.yml
@@ -49,18 +53,21 @@ cd ~/Claude-Project/mcp-gateway
 ### 共有MCP Gatewayへの移行
 
 1. 共有MCP Gatewayを起動
+
 ```bash
 cd ~/Claude-Project
 docker compose -f docker-compose-shared.yml up -d
 ```
 
 2. プロジェクトを統合
+
 ```bash
 cd ~/Claude-Project/mcp-gateway
 ./integrate.ts ../docker-compose-base.yml
 ```
 
 3. プロジェクトを再起動
+
 ```bash
 cd ~/Claude-Project
 docker compose down
@@ -70,12 +77,14 @@ docker compose up -d
 ### MCP Gateway設定の削除
 
 1. 設定を削除
+
 ```bash
 cd ~/Claude-Project/mcp-gateway
 ./remove.ts ../docker-compose-base.yml
 ```
 
 2. プロジェクトを再起動
+
 ```bash
 cd ~/Claude-Project
 docker compose down

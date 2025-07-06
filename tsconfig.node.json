@@ -18,13 +18,6 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true
   },
-  "include": [
-    "vite.config.ts",
-    "server/**/*.ts",
-    "mcp-proxy-server/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "include": ["vite.config.ts", "server/**/*.ts", "mcp-proxy-server/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

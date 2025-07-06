@@ -23,17 +23,17 @@ let debounceTimer = null;
  */
 function startProxy() {
   console.log('🚀 プロキシサーバーを起動しています...');
-  
+
   proxyProcess = spawn('bun', ['run', 'proxy'], {
     cwd: path.join(__dirname, '..'),
     stdio: 'inherit',
-    env: { ...process.env }
+    env: { ...process.env },
   });
-  
+
   proxyProcess.on('error', (error) => {
     console.error('❌ プロキシサーバーエラー:', error);
   });
-  
+
   proxyProcess.on('exit', (code, signal) => {
     if (signal !== 'SIGTERM') {
       console.log(`⚠️  プロキシサーバーが終了しました (code: ${code}, signal: ${signal})`);
@@ -69,11 +69,11 @@ function handleConfigChange() {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
   }
-  
+
   debounceTimer = setTimeout(() => {
     console.log('📝 mcp-config.jsonが変更されました。プロキシサーバーを再起動します...');
     restartProxy();
-    
+
     // Dockerコンテナも再起動（オプション）
     exec('docker-compose restart mcp-gateway-server', (error) => {
       if (error) {

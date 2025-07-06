@@ -1,8 +1,8 @@
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { configValidator } from './config-validator.js';
-import { createLogger } from './logger.js';
+import { configValidator } from './simple-validator.ts';
+import { createLogger } from './logger.ts';
 
 // @ts-ignore - ESMモジュールの互換性
 const __filename = fileURLToPath(import.meta.url);
@@ -33,7 +33,7 @@ interface ProfileUpdateOptions {
 
 /**
  * プロファイル管理クラス
- * 
+ *
  * MCPサーバーの設定とプロファイル間の同期を管理します。
  * トランザクション処理により、設定の整合性を保証します。
  */
@@ -48,40 +48,41 @@ export class ProfileManager {
 
   /**
    * 設定ファイルを読み込む
-   * 
+   *
    * @returns MCPの設定オブジェクト
    */
   async loadConfig(): Promise<MCPConfig> {
     try {
       const data = await readFile(this.configPath, 'utf-8');
       const rawConfig = JSON.parse(data);
-      
+
       // プロファイル設定かどうかを判定
-      const isProfileConfig = this.configPath.includes('mcp-config-') && 
-                             (this.configPath.includes('claude-desktop') || 
-                              this.configPath.includes('claude-code') || 
-                              this.configPath.includes('gemini-cli'));
-      
+      const isProfileConfig =
+        this.configPath.includes('mcp-config-') &&
+        (this.configPath.includes('claude-desktop') ||
+          this.configPath.includes('claude-code') ||
+          this.configPath.includes('gemini-cli'));
+
       // 設定ファイルの検証
       const validationResult = await configValidator.validateConfig(rawConfig, isProfileConfig);
-      
+
       if (!validationResult.valid) {
         logger.warn('設定ファイルの検証エラー', {
           file: this.configPath,
-          errors: validationResult.errors
+          errors: validationResult.errors,
         });
-        
+
         // 自動修復を試みる
         const repairResult = await configValidator.repairConfig(rawConfig, isProfileConfig);
         if (repairResult.repaired) {
           logger.info('設定ファイルを自動修復しました', {
             file: this.configPath,
-            changes: repairResult.changes
+            changes: repairResult.changes,
           });
           return repairResult.config as MCPConfig;
         }
       }
-      
+
       return (validationResult.normalized || rawConfig) as MCPConfig;
     } catch (error) {
       logger.error(`設定ファイルの読み込みエラー`, error as Error);
@@ -91,42 +92,43 @@ export class ProfileManager {
 
   /**
    * 設定ファイルを保存する（トランザクション処理付き）
-   * 
+   *
    * @param config - 保存する設定
    * @throws 保存に失敗した場合はエラーをスロー
    */
   async saveConfig(config: MCPConfig): Promise<void> {
     try {
       // プロファイル設定かどうかを判定
-      const isProfileConfig = this.configPath.includes('mcp-config-') && 
-                             (this.configPath.includes('claude-desktop') || 
-                              this.configPath.includes('claude-code') || 
-                              this.configPath.includes('gemini-cli'));
-      
+      const isProfileConfig =
+        this.configPath.includes('mcp-config-') &&
+        (this.configPath.includes('claude-desktop') ||
+          this.configPath.includes('claude-code') ||
+          this.configPath.includes('gemini-cli'));
+
       // 保存前に検証
       const validationResult = await configValidator.validateConfig(config, isProfileConfig);
-      
+
       if (!validationResult.valid) {
         logger.error('保存しようとした設定が無効です', {
           file: this.configPath,
-          errors: validationResult.errors
+          errors: validationResult.errors,
         });
         throw new Error('設定の検証に失敗しました');
       }
-      
+
       // 正規化された設定を使用
       const normalizedConfig = validationResult.normalized || config;
-      
+
       // バックアップを作成
       const currentConfig = await this.loadConfig();
       await writeFile(this.backupPath, JSON.stringify(currentConfig, null, 2));
 
       // 新しい設定を保存
       await writeFile(this.configPath, JSON.stringify(normalizedConfig, null, 2));
-      
+
       logger.info('設定ファイルを保存しました', {
         file: this.configPath,
-        hasWarnings: validationResult.warnings && validationResult.warnings.length > 0
+        hasWarnings: validationResult.warnings && validationResult.warnings.length > 0,
       });
     } catch (error) {
       // エラーが発生した場合はバックアップから復元を試みる
@@ -142,7 +144,7 @@ export class ProfileManager {
 
   /**
    * サーバー名を変更し、全プロファイルを同期する
-   * 
+   *
    * @param options - 更新オプション
    * @returns 成功した場合はtrue
    */
@@ -187,11 +189,9 @@ export class ProfileManager {
               const currentState = profile[oldName];
               delete profile[oldName];
               profile[newName] = preserveStates ? currentState : true;
-            } else if (!(newName in profile)) {
-              // 新しいサーバー名がプロファイルに存在しない場合
-              // デフォルトでfalseに設定（サーバーがONにならないように）
-              profile[newName] = false;
             }
+            // 注意: 新しいサーバー名がプロファイルに存在しない場合は何もしない
+            // これにより、既存のプロファイル設定が保持される
           }
         }
       }
@@ -202,7 +202,7 @@ export class ProfileManager {
     } catch (error) {
       logger.error(`サーバー名変更エラー`, error as Error, {
         oldName: options.oldName,
-        newName: options.newName
+        newName: options.newName,
       });
       throw error;
     }
@@ -210,7 +210,7 @@ export class ProfileManager {
 
   /**
    * サーバーの有効/無効状態を全プロファイルで同期する
-   * 
+   *
    * @param serverName - サーバー名
    * @param enabled - 有効/無効の状態
    */
@@ -240,7 +240,7 @@ export class ProfileManager {
 
   /**
    * プロファイル間の整合性をチェックする
-   * 
+   *
    * @returns 整合性チェックの結果
    */
   async checkProfileConsistency(): Promise<{
@@ -262,7 +262,9 @@ export class ProfileManager {
       // プロファイルに存在しないサーバーへの参照をチェック
       for (const serverName of Object.keys(profile)) {
         if (!serverNames.includes(serverName)) {
-          issues.push(`プロファイル "${profileName}" に存在しないサーバー "${serverName}" への参照があります`);
+          issues.push(
+            `プロファイル "${profileName}" に存在しないサーバー "${serverName}" への参照があります`
+          );
         }
       }
 
@@ -270,14 +272,16 @@ export class ProfileManager {
       for (const serverName of serverNames) {
         const server = config.mcpServers[serverName];
         if (server.enabled === false && profile[serverName] === true) {
-          issues.push(`プロファイル "${profileName}" で無効化されたサーバー "${serverName}" が有効になっています`);
+          issues.push(
+            `プロファイル "${profileName}" で無効化されたサーバー "${serverName}" が有効になっています`
+          );
         }
       }
     }
 
     return {
       isConsistent: issues.length === 0,
-      issues
+      issues,
     };
   }
 
@@ -302,7 +306,7 @@ export class ProfileManager {
           hasChanges = true;
           logger.info(`プロファイルから存在しないサーバーを削除`, {
             profile: profileName,
-            server: serverName
+            server: serverName,
           });
         }
       }
@@ -315,7 +319,7 @@ export class ProfileManager {
           hasChanges = true;
           logger.info(`プロファイルのサーバーを無効化`, {
             profile: profileName,
-            server: serverName
+            server: serverName,
           });
         }
       }
@@ -328,7 +332,7 @@ export class ProfileManager {
 
   /**
    * サーバーを削除し、全プロファイルから参照を削除する
-   * 
+   *
    * @param serverName - 削除するサーバー名
    */
   async deleteServerAcrossProfiles(serverName: string): Promise<void> {
@@ -355,14 +359,11 @@ export class ProfileManager {
 
   /**
    * プロファイルの状態を一括更新する
-   * 
+   *
    * @param profileName - プロファイル名
    * @param updates - 更新する状態のマップ
    */
-  async updateProfileStates(
-    profileName: string,
-    updates: Record<string, boolean>
-  ): Promise<void> {
+  async updateProfileStates(profileName: string, updates: Record<string, boolean>): Promise<void> {
     const config = await this.loadConfig();
 
     if (!config.profiles) {
@@ -377,7 +378,7 @@ export class ProfileManager {
     const currentProfile = config.profiles[profileName];
     config.profiles[profileName] = {
       ...currentProfile,
-      ...updates
+      ...updates,
     };
 
     // 存在しないサーバーへの参照を削除

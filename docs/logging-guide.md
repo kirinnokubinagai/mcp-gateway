@@ -79,25 +79,33 @@ await logger.withCorrelationId('req-123', async () => {
 ## 環境変数
 
 ### LOG_LEVEL
+
 ログレベルを設定（DEBUG, INFO, WARN, ERROR）
+
 ```bash
 LOG_LEVEL=DEBUG npm start
 ```
 
 ### LOG_MAX_SIZE
+
 ログファイルの最大サイズ（バイト単位、デフォルト: 10MB）
+
 ```bash
 LOG_MAX_SIZE=52428800 # 50MB
 ```
 
 ### LOG_MAX_FILES
+
 保持するログファイルの最大数（デフォルト: 5）
+
 ```bash
 LOG_MAX_FILES=10
 ```
 
 ### LOG_PERF_THRESHOLD
+
 パフォーマンス警告の閾値（ミリ秒、デフォルト: 1000）
+
 ```bash
 LOG_PERF_THRESHOLD=500 # 500ms以上で警告
 ```
@@ -105,14 +113,17 @@ LOG_PERF_THRESHOLD=500 # 500ms以上で警告
 ## ログファイルの場所
 
 ログファイルは以下の場所に保存されます：
+
 - `logs/mcp-gateway-YYYY-MM-DD.log`
 
 ファイルサイズが上限に達すると自動的にローテーションされます：
+
 - `logs/mcp-gateway-YYYY-MM-DDTHH-mm-ss-SSS.log`
 
 ## ログ形式
 
 ### JSON形式（ファイル）
+
 ```json
 {
   "timestamp": "2024-01-20T10:30:45.123Z",
@@ -134,6 +145,7 @@ LOG_PERF_THRESHOLD=500 # 500ms以上で警告
 ```
 
 ### カラー出力（コンソール）
+
 ```
 [2024-01-20T10:30:45.123Z] [INFO] サーバー接続成功 {"module":"MCPGateway","serverName":"example-server"}
 ```
@@ -141,12 +153,13 @@ LOG_PERF_THRESHOLD=500 # 500ms以上で警告
 ## ベストプラクティス
 
 ### 1. 構造化データを使用
+
 ```typescript
 // 良い例
-logger.info('ユーザー作成', { 
+logger.info('ユーザー作成', {
   userId: user.id,
   email: user.email,
-  role: user.role
+  role: user.role,
 });
 
 // 悪い例
@@ -154,25 +167,28 @@ logger.info(`ユーザー ${user.id} (${user.email}) を作成しました`);
 ```
 
 ### 2. エラーオブジェクトを渡す
+
 ```typescript
 try {
   await someOperation();
 } catch (error) {
   // 良い例
   logger.error('操作に失敗しました', error, { operation: 'someOperation' });
-  
+
   // 悪い例
   logger.error(`操作に失敗しました: ${error.message}`);
 }
 ```
 
 ### 3. 適切なログレベルを使用
+
 - **DEBUG**: 開発時のデバッグ情報
 - **INFO**: 正常な処理フロー
 - **WARN**: 注意が必要な状態（継続可能）
 - **ERROR**: エラー状態（要対応）
 
 ### 4. パフォーマンスが重要な処理を計測
+
 ```typescript
 class CriticalService {
   @logPerformance('重要な処理')
@@ -185,21 +201,25 @@ class CriticalService {
 ## トラブルシューティング
 
 ### ログが出力されない
+
 1. 環境変数 `LOG_LEVEL` を確認
 2. ログディレクトリの書き込み権限を確認
 
 ### ログファイルが大きくなりすぎる
+
 1. `LOG_MAX_SIZE` を調整
 2. `LOG_MAX_FILES` を減らす
 3. ログレベルを上げる（INFO → WARN）
 
 ### パフォーマンス警告が多すぎる
+
 1. `LOG_PERF_THRESHOLD` を調整
 2. 実際のパフォーマンス問題を調査
 
 ## 移行ガイド
 
 ### console.log からの移行
+
 ```typescript
 // 以前
 console.log('処理開始');
@@ -211,12 +231,13 @@ logger.error('エラーが発生しました', error);
 ```
 
 ### デバッグ時の tips
+
 ```typescript
 // 開発環境でのみ詳細ログを出力
 if (process.env.NODE_ENV === 'development') {
-  logger.debug('詳細なデバッグ情報', { 
+  logger.debug('詳細なデバッグ情報', {
     fullRequest: request,
-    internalState: state 
+    internalState: state,
   });
 }
 ```

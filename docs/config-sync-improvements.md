@@ -46,9 +46,9 @@ function calculateConfigHash(config: ServerConfig): string {
   const normalizedConfig = {
     command: config.command,
     args: config.args || [],
-    env: config.env || {}
+    env: config.env || {},
   };
-  
+
   // ソートされたキーで確定的なJSON文字列を生成
   const configString = JSON.stringify(normalizedConfig, null, 0);
   return createHash('sha256').update(configString).digest('hex');
@@ -62,11 +62,20 @@ function extractDockerImageName(args: string[]): string | null {
   // runコマンド以降で最初の非オプション引数を取得
   // 値を取るオプションを正確にスキップ
   const optionsWithValue = new Set([
-    '--name', '--memory', '--cpus', '--network', '--user',
-    '-e', '--env', '-v', '--volume', '--workdir', '-w',
+    '--name',
+    '--memory',
+    '--cpus',
+    '--network',
+    '--user',
+    '-e',
+    '--env',
+    '-v',
+    '--volume',
+    '--workdir',
+    '-w',
     // ... その他のオプション
   ]);
-  
+
   // オプションをスキップしてイメージ名を特定
 }
 ```

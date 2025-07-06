@@ -15,12 +15,14 @@ MCP Gateway is a sophisticated gateway system that integrates multiple MCP (Mode
 ## Key Architecture Components
 
 ### 1. MCP Proxy Server (Bun-only)
+
 - **Location**: `mcp-proxy-server/server.ts`
 - **Purpose**: WebSocket proxy that bridges Docker containers with MCP servers
 - **Port**: ws://localhost:9999 (configurable via MCP_PROXY_PORT)
 - **Critical**: This server MUST be run with Bun runtime due to native WebSocket implementation
 
 ### 2. Gateway MCP Server
+
 - **Location**: `server/index.ts`
 - **Purpose**: Aggregates multiple MCP servers into a single interface
 - **Features**:
@@ -30,21 +32,24 @@ MCP Gateway is a sophisticated gateway system that integrates multiple MCP (Mode
   - Host command execution support
 
 ### 3. API Server
+
 - **Location**: `server/api-server.ts`
 - **Purpose**: REST API for managing MCP server configurations
 - **Port**: http://localhost:3003
 - **Framework**: Hono (lightweight web framework)
 
 ### 4. Web UI
+
 - **Location**: `src/` (React/Vite app)
 - **Purpose**: Browser-based MCP server management interface
 - **Port**: http://localhost:3002
 - **Stack**: React + TypeScript + Tailwind CSS + shadcn/ui
 
 ### 5. Profile Manager
+
 - **Location**: `server/profile-manager.ts`
 - **Purpose**: Manages different client profiles (claude-desktop, claude-code, gemini-cli)
-- **Config Files**: 
+- **Config Files**:
   - `mcp-config-claude-desktop.json`
   - `mcp-config-claude-code.json`
   - `mcp-config-gemini-cli.json`
@@ -92,6 +97,7 @@ npm run lint
 ## Configuration Management
 
 ### Profile-based Config Structure
+
 ```json
 {
   "servers": {
@@ -108,6 +114,7 @@ npm run lint
 ```
 
 ### Environment Variable Expansion
+
 - Supports `${ENV_VAR}` syntax in config values
 - Automatically expands environment variables in command, args, and env fields
 - Example: `"apiKey": "${OPENAI_API_KEY}"`
@@ -117,6 +124,7 @@ npm run lint
 The proxy server implements a custom WebSocket protocol for MCP communication:
 
 ### Message Types
+
 1. **init**: Initialize MCP server connection
 2. **stdin**: Forward stdin data to MCP server
 3. **stdout/stderr**: Receive output from MCP server
@@ -124,6 +132,7 @@ The proxy server implements a custom WebSocket protocol for MCP communication:
 5. **exit**: Server process termination
 
 ### Host Command Whitelist
+
 - `say` (macOS text-to-speech)
 - `osascript` (macOS automation)
 - `notify-send` (Linux notifications)
@@ -132,10 +141,12 @@ The proxy server implements a custom WebSocket protocol for MCP communication:
 ## Docker Integration
 
 ### Network Configuration
+
 - Uses `shared-mcp-network` for inter-container communication
 - Requires `host.docker.internal` for accessing host services from containers
 
 ### Container Structure
+
 1. **proxy-check**: Validates proxy server is running before starting other services
 2. **mcp-gateway-server**: Main gateway server container
 3. **mcp-gateway-client**: Web UI container
@@ -143,6 +154,7 @@ The proxy server implements a custom WebSocket protocol for MCP communication:
 ## Error Handling Patterns
 
 The gateway implements comprehensive error handling with Japanese error messages:
+
 - Package not found errors
 - Command not found errors
 - Connection refused errors
@@ -154,11 +166,13 @@ Each error type provides user-friendly messages and suggested solutions.
 ## State Management
 
 ### Status Files
+
 - `mcp-status.json`: Server connection statuses
 - `mcp-tools.json`: Available tools from all servers
 - Both files are updated in real-time via WebSocket events
 
 ### Server States
+
 - `disabled`: Server is disabled in config
 - `updating`: Connection in progress
 - `connected`: Successfully connected
@@ -167,6 +181,7 @@ Each error type provides user-friendly messages and suggested solutions.
 ## Testing & Development
 
 ### Test Individual Components
+
 ```bash
 # Test proxy server connection
 websocat ws://localhost:9999
@@ -182,6 +197,7 @@ curl http://localhost:3003/api/tools
 ```
 
 ### Running Tests
+
 ```bash
 # Run all tests
 npm test

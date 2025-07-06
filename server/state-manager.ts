@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
-import { createLogger } from './logger.js';
-import { ServerConfig, Tool } from './types.js';
+import { createLogger } from './logger.ts';
+import { ServerConfig, Tool } from './types.ts';
 
 const logger = createLogger({ module: 'StateManager' });
 
@@ -31,7 +31,7 @@ export interface StateChangeEvent {
 
 /**
  * 統一された状態管理クラス
- * 
+ *
  * MCP Gatewayの全ての状態を一元管理し、状態の一貫性を保証します。
  * メモリとファイルの二重管理を解消し、イベント駆動で状態を同期します。
  */
@@ -56,7 +56,7 @@ export class StateManager extends EventEmitter {
 
   /**
    * 状態管理を初期化する
-   * 
+   *
    * ファイルから既存の状態を読み込み、メモリに展開します。
    */
   async initialize(): Promise<void> {
@@ -65,10 +65,10 @@ export class StateManager extends EventEmitter {
     try {
       // ステータスファイルの読み込み
       await this.loadStatesFromFile();
-      
+
       // ツールファイルの読み込み
       await this.loadToolsFromFile();
-      
+
       this.initialized = true;
       logger.info('状態管理の初期化が完了しました');
     } catch (error) {
@@ -80,56 +80,59 @@ export class StateManager extends EventEmitter {
 
   /**
    * サーバーの状態を更新する（トランザクション的）
-   * 
+   *
    * @param serverName - サーバー名
    * @param state - 新しい状態
    * @param atomic - 原子性を保証するかどうか
    */
-  async updateServerState(serverName: string, state: Partial<ServerState>, atomic: boolean = true): Promise<void> {
+  async updateServerState(
+    serverName: string,
+    state: Partial<ServerState>,
+    atomic: boolean = true
+  ): Promise<void> {
     const startTime = Date.now();
-    
+
     try {
       if (atomic) {
         // 既存の状態を保持（ロールバック用）
         const previousState = this.serverStates.get(serverName);
-        
+
         try {
           // 状態を検証
           this.validateServerState(serverName, state);
-          
+
           // メモリ上の状態を更新
           const currentState = this.serverStates.get(serverName) || {
             status: 'disabled',
-            config: {} as ServerConfig
+            config: {} as ServerConfig,
           };
-          
+
           const newState: ServerState = {
             ...currentState,
             ...state,
-            lastUpdate: new Date()
+            lastUpdate: new Date(),
           };
-          
+
           this.serverStates.set(serverName, newState);
-          
+
           // ファイルに保存（非同期）
           this.saveQueue.enqueue(() => this.saveStatesToFile());
-          
+
           // イベントを発行
           this.emit('state-changed', {
             type: 'server-state-changed',
             serverName,
-            state: newState
+            state: newState,
           } as StateChangeEvent);
-          
+
           // WebSocket通知
           await this.notifyWebSocketClients();
-          
+
           logger.debug(`サーバー状態更新完了: ${serverName}`, {
             serverName,
             status: newState.status,
-            duration: Date.now() - startTime
+            duration: Date.now() - startTime,
           });
-          
         } catch (error) {
           // エラー時はロールバック
           if (previousState) {
@@ -143,22 +146,22 @@ export class StateManager extends EventEmitter {
         // 非原子的更新（パフォーマンス優先）
         const currentState = this.serverStates.get(serverName) || {
           status: 'disabled',
-          config: {} as ServerConfig
+          config: {} as ServerConfig,
         };
-        
+
         const newState: ServerState = {
           ...currentState,
           ...state,
-          lastUpdate: new Date()
+          lastUpdate: new Date(),
         };
-        
+
         this.serverStates.set(serverName, newState);
         this.saveQueue.enqueue(() => this.saveStatesToFile());
-        
+
         this.emit('state-changed', {
           type: 'server-state-changed',
           serverName,
-          state: newState
+          state: newState,
         } as StateChangeEvent);
       }
     } catch (error) {
@@ -169,24 +172,24 @@ export class StateManager extends EventEmitter {
 
   /**
    * サーバーのツールを更新する
-   * 
+   *
    * @param serverName - サーバー名
    * @param tools - ツールのリスト
    */
   async updateServerTools(serverName: string, tools: Tool[]): Promise<void> {
     try {
       this.serverTools.set(serverName, tools);
-      
+
       // ファイルに保存（非同期）
       this.saveQueue.enqueue(() => this.saveToolsToFile());
-      
+
       // イベントを発行
       this.emit('state-changed', {
         type: 'server-tools-changed',
         serverName,
-        tools
+        tools,
       } as StateChangeEvent);
-      
+
       logger.debug(`ツール更新完了: ${serverName}, ツール数: ${tools.length}`);
     } catch (error) {
       logger.error(`ツール更新エラー: ${serverName}`, error as Error);
@@ -196,22 +199,22 @@ export class StateManager extends EventEmitter {
 
   /**
    * サーバーの状態を削除する
-   * 
+   *
    * @param serverName - サーバー名
    */
   async deleteServerState(serverName: string): Promise<void> {
     try {
       this.serverStates.delete(serverName);
-      
+
       // ファイルに保存（非同期）
       this.saveQueue.enqueue(() => this.saveStatesToFile());
-      
+
       // イベントを発行
       this.emit('state-changed', {
         type: 'server-deleted',
-        serverName
+        serverName,
       } as StateChangeEvent);
-      
+
       logger.debug(`サーバー状態削除: ${serverName}`);
     } catch (error) {
       logger.error(`サーバー状態削除エラー: ${serverName}`, error as Error);
@@ -221,16 +224,16 @@ export class StateManager extends EventEmitter {
 
   /**
    * サーバーのツールを削除する
-   * 
+   *
    * @param serverName - サーバー名
    */
   async deleteServerTools(serverName: string): Promise<void> {
     try {
       this.serverTools.delete(serverName);
-      
+
       // ファイルに保存（非同期）
       this.saveQueue.enqueue(() => this.saveToolsToFile());
-      
+
       logger.debug(`ツール削除: ${serverName}`);
     } catch (error) {
       logger.error(`ツール削除エラー: ${serverName}`, error as Error);
@@ -283,7 +286,7 @@ export class StateManager extends EventEmitter {
     try {
       const data = await fs.readFile(this.statusFilePath, 'utf-8');
       const states = JSON.parse(data);
-      
+
       // 簡易的な状態表現から完全な状態オブジェクトに変換
       for (const [serverName, simpleState] of Object.entries(states as Record<string, any>)) {
         const state: ServerState = {
@@ -292,11 +295,11 @@ export class StateManager extends EventEmitter {
           error: simpleState.error,
           errorType: simpleState.errorType,
           errorDetails: simpleState.errorDetails,
-          lastUpdate: simpleState.lastUpdate ? new Date(simpleState.lastUpdate) : undefined
+          lastUpdate: simpleState.lastUpdate ? new Date(simpleState.lastUpdate) : undefined,
         };
         this.serverStates.set(serverName, state);
       }
-      
+
       logger.debug(`状態をファイルから読み込みました: ${this.serverStates.size}個のサーバー`);
     } catch (error) {
       // ファイルが存在しない場合は空の状態から開始
@@ -313,11 +316,11 @@ export class StateManager extends EventEmitter {
     try {
       const data = await fs.readFile(this.toolsFilePath, 'utf-8');
       const tools = JSON.parse(data);
-      
+
       for (const [serverName, toolList] of Object.entries(tools as Record<string, Tool[]>)) {
         this.serverTools.set(serverName, toolList);
       }
-      
+
       logger.debug(`ツールをファイルから読み込みました: ${this.serverTools.size}個のサーバー`);
     } catch (error) {
       // ファイルが存在しない場合は空の状態から開始
@@ -334,7 +337,7 @@ export class StateManager extends EventEmitter {
     try {
       // UI表示用の簡易的な状態表現に変換
       const simpleStates: Record<string, any> = {};
-      
+
       for (const [serverName, state] of this.serverStates) {
         simpleStates[serverName] = {
           enabled: state.config?.enabled ?? false,
@@ -343,10 +346,10 @@ export class StateManager extends EventEmitter {
           error: state.error,
           errorType: state.errorType,
           errorDetails: state.errorDetails,
-          lastUpdate: state.lastUpdate?.toISOString()
+          lastUpdate: state.lastUpdate?.toISOString(),
         };
       }
-      
+
       await fs.writeFile(this.statusFilePath, JSON.stringify(simpleStates, null, 2));
       logger.debug('状態をファイルに保存しました');
     } catch (error) {
@@ -389,11 +392,11 @@ export class StateManager extends EventEmitter {
     if (!serverName || typeof serverName !== 'string') {
       throw new Error('サーバー名が無効です');
     }
-    
+
     if (state.status && !['connected', 'error', 'disabled', 'updating'].includes(state.status)) {
       throw new Error(`無効なステータス: ${state.status}`);
     }
-    
+
     // その他の検証ロジックを追加可能
   }
 
@@ -441,14 +444,14 @@ export class StateManager extends EventEmitter {
       errorServers,
       disabledServers,
       updatingServers,
-      totalTools
+      totalTools,
     };
   }
 }
 
 /**
  * 非同期保存キュー
- * 
+ *
  * ファイル保存操作をキューイングし、重複する保存要求を統合します。
  */
 class AsyncSaveQueue {
@@ -463,7 +466,7 @@ class AsyncSaveQueue {
     // 同じ関数の重複を防ぐ
     const funcKey = saveFunc.toString();
     this.pendingSave.set(funcKey, saveFunc);
-    
+
     if (!this.processing) {
       this.processQueue();
     }
@@ -474,27 +477,27 @@ class AsyncSaveQueue {
    */
   private async processQueue(): Promise<void> {
     if (this.processing || this.pendingSave.size === 0) return;
-    
+
     this.processing = true;
-    
+
     try {
       // ペンディングの保存操作を取得してクリア
       const saveFuncs = Array.from(this.pendingSave.values());
       this.pendingSave.clear();
-      
+
       // 各保存操作を順次実行
       for (const saveFunc of saveFuncs) {
         try {
           await saveFunc();
           // 保存間隔を空ける（ファイルシステムの負荷軽減）
-          await new Promise(resolve => setTimeout(resolve, 50));
+          await new Promise((resolve) => setTimeout(resolve, 50));
         } catch (error) {
           logger.error('保存キュー処理エラー', error as Error);
         }
       }
     } finally {
       this.processing = false;
-      
+
       // 新しい保存要求がある場合は再度処理
       if (this.pendingSave.size > 0) {
         setImmediate(() => this.processQueue());

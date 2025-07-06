@@ -5,12 +5,14 @@
 ## 📋 必要な環境
 
 ### 必須要件
+
 - **Bun**: v1.0以上（プロキシサーバー用、必須）
 - **Node.js**: v18以上（watch-config.js用、必須）
 - **Docker**: v20以上（Web UI使用時）
 - **Docker Compose**: v2以上（Web UI使用時）
 
 ### 推奨環境
+
 - **OS**: macOS、Linux、Windows (WSL2)
 - **メモリ**: 4GB以上の空きRAM
 - **ストレージ**: 1GB以上の空き容量
@@ -34,9 +36,11 @@ bun --version
 - **ツール名の自動変換**: `serverName_toolName`形式で各サーバーのツールを識別
 
 ### ⚠️ 重要な注意事項
+
 Web UI（http://localhost:3002）でMCPサーバーが「エラー」と表示されるのは正常な動作です。MCPサーバーはClaude Codeから接続された時に初めて起動されます。
 
 #### 状態の説明
+
 - **無効**: サーバーが無効化されている
 - **接続中...** (青色): サーバーへの接続を試行中
 - **接続済み** (緑色): サーバーに正常に接続されている
@@ -45,6 +49,7 @@ Web UI（http://localhost:3002）でMCPサーバーが「エラー」と表示�
 ## 🚀 クイックスタート
 
 ### 統合起動（推奨）
+
 ```bash
 # プロキシサーバーとDockerコンテナを一括起動
 npm start
@@ -58,6 +63,7 @@ npm stop
 ```
 
 ### 個別起動
+
 ```bash
 # プロキシサーバーを起動（基本）
 bun run start
@@ -80,20 +86,15 @@ Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/clau
   "mcpServers": {
     "gateway": {
       "command": "docker",
-      "args": [
-        "exec",
-        "-i",
-        "shared-mcp-gateway-server",
-        "bun",
-        "server/index.ts"
-      ],
+      "args": ["exec", "-i", "shared-mcp-gateway-server", "bun", "server/index.ts"],
       "cwd": "/path/to/mcp-gateway/mcp-proxy-server"
     }
   }
 }
 ```
 
-**重要**: 
+**重要**:
+
 - Gateway MCPを使用する場合、個別のMCPサーバー（obsidian、context7など）の設定は削除してください
 
 ## 🤖 Claude Codeでの使用
@@ -122,7 +123,8 @@ bun start
 claude mcp add gateway -- docker exec -i shared-mcp-gateway-server bun server/index.ts
 ```
 
-注意**: 
+注意\*\*:
+
 - Docker経由で実行する場合、プロキシサーバーが起動している必要があります
 - `--`を忘れずに付けてください（`claude mcp add`のオプションとコマンドを区別するため）
 
@@ -216,9 +218,11 @@ claude mcp remove gateway
 ## 🎯 注意事項
 
 ### プロキシサーバーはBun専用
+
 プロキシサーバー（mcp-proxy-server）はBunランタイムに特化して最適化されています。watch-config.jsはNode.jsで動作します。
 
 ### 環境変数
+
 以下の環境変数を`.env`ファイルで設定できます：
 
 ```bash
@@ -273,13 +277,13 @@ npm run test:websocket
 ### 設定可能なパラメータ
 
 WebSocketTransportのオプション:
+
 - `reconnectAttempts`: 再接続試行回数（デフォルト: 5）
 - `reconnectDelay`: 初期再接続遅延（デフォルト: 1000ms）
 - `maxReconnectDelay`: 最大再接続遅延（デフォルト: 30000ms）
 - `pingInterval`: Ping送信間隔（デフォルト: 30000ms）
 
 ## 📚 アーキテクチャ
-
 
 ### Claude Desktop使用時（MCP管理用Web UI付き）
 
@@ -363,6 +367,7 @@ WebSocketTransportのオプション:
 既存のClaude-ProjectにMCP Gatewayを統合する場合：
 
 ### 使用方法
+
 ```bash
 ./setup-claude-project.sh [Claude-Projectパス] <docker-compose.ymlファイル名>
 ```
@@ -370,6 +375,7 @@ WebSocketTransportのオプション:
 **注意**: docker-compose.ymlファイル名は必須です。
 
 ### 使用例
+
 ```bash
 # 基本的な使い方
 ./setup-claude-project.sh ~/Claude-Project docker-compose-base.yml
@@ -388,9 +394,9 @@ WebSocketTransportのオプション:
 ```
 
 スクリプトは以下を自動実行：
+
 1. 統合ファイルを指定されたClaude-Projectディレクトリにコピー
 2. 対話式でセットアップを続行するか確認
 3. Git Submoduleの追加やDocker設定の作成
 
 詳細は[claude-project-integration/README.md](claude-project-integration/README.md)を参照してください。
-

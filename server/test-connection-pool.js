@@ -2,7 +2,7 @@
 
 /**
  * 接続プールの動作確認スクリプト
- * 
+ *
  * 接続プールが正しく動作しているかを確認するためのテストスクリプトです。
  * 接続の作成、再利用、健全性チェック、統計情報の表示を行います。
  */
@@ -22,7 +22,7 @@ async function testConnectionPool() {
     connectionTimeout: 30000,
     idleTimeout: 60000,
     healthCheckIntervalMs: 10000,
-    maxHealthCheckFailures: 2
+    maxHealthCheckFailures: 2,
   });
 
   // イベントリスナーを設定
@@ -54,15 +54,17 @@ async function testConnectionPool() {
       websocket: 'ws://host.docker.internal:9999',
       command: 'echo',
       args: ['test1'],
-      sessionId: 'session-1'
+      sessionId: 'session-1',
     };
 
     const conn1 = await pool.acquire(config1);
     logger.info(`接続1を取得しました: ${conn1.config.name}`);
-    
+
     // 統計情報を表示
     let stats = pool.getStats();
-    logger.info(`統計: 総接続数=${stats.totalConnections}, アクティブ=${stats.activeConnections}, アイドル=${stats.idleConnections}`);
+    logger.info(
+      `統計: 総接続数=${stats.totalConnections}, アクティブ=${stats.activeConnections}, アイドル=${stats.idleConnections}`
+    );
 
     // テスト2: 接続の返却と再利用
     logger.info('\n=== テスト2: 接続の返却と再利用 ===');
@@ -70,7 +72,9 @@ async function testConnectionPool() {
     logger.info('接続1を返却しました');
 
     stats = pool.getStats();
-    logger.info(`統計: 総接続数=${stats.totalConnections}, アクティブ=${stats.activeConnections}, アイドル=${stats.idleConnections}`);
+    logger.info(
+      `統計: 総接続数=${stats.totalConnections}, アクティブ=${stats.activeConnections}, アイドル=${stats.idleConnections}`
+    );
 
     // 同じ設定で再度取得（再利用されるはず）
     const conn1_reused = await pool.acquire(config1);
@@ -83,7 +87,7 @@ async function testConnectionPool() {
       websocket: 'ws://host.docker.internal:9999',
       command: 'echo',
       args: ['test2'],
-      sessionId: 'session-2'
+      sessionId: 'session-2',
     };
 
     const config3 = {
@@ -91,7 +95,7 @@ async function testConnectionPool() {
       websocket: 'ws://host.docker.internal:9999',
       command: 'echo',
       args: ['test3'],
-      sessionId: 'session-3'
+      sessionId: 'session-3',
     };
 
     const conn2 = await pool.acquire(config2);
@@ -110,20 +114,21 @@ async function testConnectionPool() {
     // テスト4: 接続の削除
     logger.info('\n=== テスト4: 接続の削除 ===');
     await pool.remove(conn3);
-    
+
     stats = pool.getStats();
     logger.info(`統計: 総接続数=${stats.totalConnections}, アクティブ=${stats.activeConnections}`);
 
     // 10秒待って健全性チェックを観察
     logger.info('\n=== 健全性チェックを観察（10秒待機）===');
-    await new Promise(resolve => setTimeout(resolve, 10000));
+    await new Promise((resolve) => setTimeout(resolve, 10000));
 
     // 最終統計
     logger.info('\n=== 最終統計 ===');
     stats = pool.getStats();
-    logger.info(`統計: 総接続数=${stats.totalConnections}, アクティブ=${stats.activeConnections}, アイドル=${stats.idleConnections}`);
+    logger.info(
+      `統計: 総接続数=${stats.totalConnections}, アクティブ=${stats.activeConnections}, アイドル=${stats.idleConnections}`
+    );
     logger.info('サーバーごとの接続数:', stats.connectionsByServer);
-
   } catch (error) {
     logger.error('テスト中にエラーが発生しました', error);
   } finally {
@@ -143,7 +148,7 @@ process.on('unhandledRejection', (error) => {
 });
 
 // メイン処理を実行
-testConnectionPool().catch(error => {
+testConnectionPool().catch((error) => {
   logger.error('テストスクリプトエラー', error);
   process.exit(1);
 });

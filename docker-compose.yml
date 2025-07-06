@@ -28,7 +28,7 @@ services:
         fi
       "
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     networks:
       - shared-mcp-network
 
@@ -38,7 +38,7 @@ services:
       dockerfile: Dockerfile.server
     container_name: shared-mcp-gateway-server
     ports:
-      - "${MCP_API_PORT:-3003}:3003"
+      - '${MCP_API_PORT:-3003}:3003'
     volumes:
       - ./mcp-config.json:/app/mcp-config.json:rw
       - ./mcp-status.json:/app/mcp-status.json:rw
@@ -49,7 +49,7 @@ services:
       - PORT=${MCP_API_PORT:-3003}
       - HOST_PATH=${PATH}
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     restart: unless-stopped
     depends_on:
       proxy-check:
@@ -63,7 +63,7 @@ services:
       dockerfile: Dockerfile.client
     container_name: shared-mcp-gateway-client
     ports:
-      - "${MCP_WEB_PORT:-3002}:3002"
+      - '${MCP_WEB_PORT:-3002}:3002'
     environment:
       - MCP_API_PORT=${MCP_API_PORT:-3003}
       - CLIENT_PORT=${MCP_WEB_PORT:-3002}

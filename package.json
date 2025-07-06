@@ -7,6 +7,9 @@
     "proxy": "cd mcp-proxy-server && bun run server.ts",
     "proxy:daemon": "nohup node scripts/watch-config.js > proxy.log 2>&1 & echo $! > proxy.pid && echo 'プロキシサーバーをデーモンとして起動しました (PID: '$(cat proxy.pid)')'",
     "proxy:stop": "[ -f proxy.pid ] && kill $(cat proxy.pid) && rm proxy.pid && echo 'プロキシサーバーを停止しました' || echo 'プロキシサーバーは起動していません'",
+    "proxy:stable": "./proxy-stable.sh",
+    "proxy:background": "mkdir -p logs && nohup bun run proxy > logs/proxy.log 2>&1 & echo $! > logs/proxy.pid && echo 'プロキシサーバーをバックグラウンドで起動しました (PID: '$!')'",
+    "proxy:kill": "pkill -f 'bun.*mcp-proxy-server' && echo 'すべてのプロキシサーバープロセスを停止しました' || echo 'プロキシサーバーは起動していません'",
     "start": "./start.sh",
     "start:rebuild": "npm run rebuild && npm start",
     "stop": "./stop.sh",
@@ -15,13 +18,19 @@
     "restart": "docker-compose down -v && docker-compose up -d",
     "restart:full": "docker-compose down -v && docker-compose build --no-cache && docker-compose up -d",
     "typecheck": "cd server && tsc --noEmit",
-    "test": "cd server && vitest",
-    "test:watch": "cd server && vitest --watch",
+    "test": "cd server && vitest run",
+    "test:watch": "cd server && vitest",
     "test:websocket": "node tests/websocket-stability.test.js",
     "validate": "node scripts/validate-config.js",
     "validate:all": "node scripts/validate-config.js --all",
     "validate:repair": "node scripts/validate-config.js --repair",
-    "validate:repair:all": "node scripts/validate-config.js --repair --all"
+    "validate:repair:all": "node scripts/validate-config.js --repair --all",
+    "lint": "eslint --ext .ts,.tsx server mcp-proxy-server src",
+    "lint:fix": "eslint --ext .ts,.tsx server mcp-proxy-server src --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "fix": "npm run lint:fix && npm run format"
   },
   "dependencies": {
     "ajv": "^8.12.0",
@@ -29,6 +38,18 @@
     "chalk": "^5.3.0"
   },
   "devDependencies": {
-    "@types/bun": "^1.2.17"
+    "@types/bun": "^1.2.17",
+    "@types/node": "^24.0.10",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-prettier": "^5.1.3",
+    "hono": "^4.8.4",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3",
+    "vitest": "^3.2.4"
   }
 }

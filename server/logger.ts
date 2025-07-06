@@ -68,10 +68,10 @@ class Logger {
     this.maxFileSize = parseInt(process.env.LOG_MAX_SIZE || '10485760'); // 10MB
     this.maxFiles = parseInt(process.env.LOG_MAX_FILES || '5');
     this.performanceThreshold = parseInt(process.env.LOG_PERF_THRESHOLD || '1000'); // 1秒
-    
+
     this.ensureLogDirectory();
     this.initializeFileStream();
-    
+
     // 定期的にキューをフラッシュ
     setInterval(() => this.flushQueue(), 1000);
   }
@@ -100,7 +100,7 @@ class Logger {
   private initializeFileStream(): void {
     const logFileName = `mcp-gateway-${new Date().toISOString().split('T')[0]}.log`;
     this.currentLogFile = join(this.logDir, logFileName);
-    
+
     this.fileStream = createWriteStream(this.currentLogFile, { flags: 'a' });
   }
 
@@ -131,12 +131,13 @@ class Logger {
 
   private cleanupOldLogs(): void {
     const fs = require('fs');
-    const files = fs.readdirSync(this.logDir)
+    const files = fs
+      .readdirSync(this.logDir)
       .filter((file: string) => file.startsWith('mcp-gateway-') && file.endsWith('.log'))
       .map((file: string) => ({
         name: file,
         path: join(this.logDir, file),
-        mtime: fs.statSync(join(this.logDir, file)).mtime
+        mtime: fs.statSync(join(this.logDir, file)).mtime,
       }))
       .sort((a: any, b: any) => b.mtime.getTime() - a.mtime.getTime());
 
@@ -147,7 +148,13 @@ class Logger {
     }
   }
 
-  private formatLogEntry(level: string, message: string, context?: LogContext, error?: Error, performance?: PerformanceMetrics): LogEntry {
+  private formatLogEntry(
+    level: string,
+    message: string,
+    context?: LogContext,
+    error?: Error,
+    performance?: PerformanceMetrics
+  ): LogEntry {
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -198,10 +205,10 @@ class Logger {
 
   private writeLog(entry: LogEntry): void {
     const logString = JSON.stringify(entry);
-    
+
     // コンソール出力
     const coloredOutput = this.colorizeOutput(entry);
-    console.log(coloredOutput);
+    console.error(coloredOutput);
 
     // ファイル出力をキューに追加（非同期）
     if (this.fileStream) {
@@ -216,15 +223,15 @@ class Logger {
     }
 
     this.isWriting = true;
-    
+
     try {
       // ローテーションチェック
       this.rotateLogFile();
-      
+
       // バッチ書き込み
       const batch = this.writeQueue.splice(0, 100); // 最大100行ずつ
       const data = batch.join('\n') + '\n';
-      
+
       await new Promise<void>((resolve, reject) => {
         this.fileStream!.write(data, (err) => {
           if (err) reject(err);
@@ -235,7 +242,7 @@ class Logger {
       console.error('ログ書き込みエラー:', error);
     } finally {
       this.isWriting = false;
-      
+
       // まだキューにデータがある場合は再処理
       if (this.writeQueue.length > 0) {
         setImmediate(() => this.processQueue());
@@ -250,12 +257,12 @@ class Logger {
   }
 
   private colorizeOutput(entry: LogEntry): string {
-    const colors = {
+    const colors: { [key: string]: string } = {
       DEBUG: '\x1b[36m', // Cyan
-      INFO: '\x1b[32m',  // Green
-      WARN: '\x1b[33m',  // Yellow
+      INFO: '\x1b[32m', // Green
+      WARN: '\x1b[33m', // Yellow
       ERROR: '\x1b[31m', // Red
-      RESET: '\x1b[0m'
+      RESET: '\x1b[0m',
     };
 
     const color = colors[entry.level] || colors.RESET;
@@ -317,7 +324,7 @@ class Logger {
     }
   }
 
-  public startTimer(label: string): () => PerformanceMetrics {
+  public startTimer(): () => PerformanceMetrics {
     const startTime = process.hrtime.bigint();
     const startMemory = process.memoryUsage();
     const startCpu = process.cpuUsage();
@@ -404,8 +411,8 @@ class LoggerWithContext {
     this.parent.performance(message, metrics, this.mergeContext(context));
   }
 
-  public startTimer(label: string): () => PerformanceMetrics {
-    return this.parent.startTimer(label);
+  public startTimer(): () => PerformanceMetrics {
+    return this.parent.startTimer();
   }
 
   public async withCorrelationId<T>(correlationId: string, fn: () => Promise<T>): Promise<T> {
@@ -425,9 +432,9 @@ export function createLogger(context: LogContext): LoggerWithContext {
 
 /**
  * パフォーマンス計測デコレーター
- * 
+ *
  * メソッドの実行時間とリソース使用量を自動的に記録します。
- * 
+ *
  * @example
  * class MyService {
  *   @logPerformance('データ取得')
@@ -442,7 +449,7 @@ export function logPerformance(label?: string) {
     const methodName = label || `${target.constructor.name}.${propertyKey}`;
 
     descriptor.value = async function (...args: any[]) {
-      const timer = logger.startTimer(methodName);
+      const timer = logger.startTimer();
       const correlationId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
       try {

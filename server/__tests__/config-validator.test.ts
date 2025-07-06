@@ -14,13 +14,13 @@ describe('ConfigValidator', () => {
             command: 'node',
             args: ['test.js'],
             env: { NODE_ENV: 'test' },
-            enabled: true
-          }
-        }
+            enabled: true,
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.valid).toBe(true);
       expect(result.errors).toBeUndefined();
       expect(result.normalized).toBeDefined();
@@ -33,13 +33,13 @@ describe('ConfigValidator', () => {
           'test-server': {
             // commandがない
             args: ['test.js'],
-            enabled: true
-          }
-        }
+            enabled: true,
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.valid).toBe(false);
       expect(result.errors).toBeDefined();
       expect(result.errors!.length).toBeGreaterThan(0);
@@ -52,16 +52,16 @@ describe('ConfigValidator', () => {
           'dangerous-server': {
             command: 'rm',
             args: ['-rf', '/'],
-            enabled: true
-          }
-        }
+            enabled: true,
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.valid).toBe(false);
       expect(result.errors).toBeDefined();
-      expect(result.errors!.some(e => e.message.includes('危険なコマンド'))).toBe(true);
+      expect(result.errors!.some((e) => e.message.includes('危険なコマンド'))).toBe(true);
     });
 
     it('機密情報を含む環境変数に警告を出す', async () => {
@@ -72,19 +72,19 @@ describe('ConfigValidator', () => {
             args: ['test.js'],
             env: {
               API_KEY: 'secret-key-123',
-              DATABASE_PASSWORD: 'password123'
+              DATABASE_PASSWORD: 'password123',
             },
-            enabled: true
-          }
-        }
+            enabled: true,
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.valid).toBe(true);
       expect(result.warnings).toBeDefined();
       expect(result.warnings!.length).toBeGreaterThan(0);
-      expect(result.warnings!.some(w => w.message.includes('機密情報'))).toBe(true);
+      expect(result.warnings!.some((w) => w.message.includes('機密情報'))).toBe(true);
     });
 
     it('プロファイル設定を検証できる', async () => {
@@ -93,13 +93,13 @@ describe('ConfigValidator', () => {
           'test-server': {
             command: 'node',
             args: ['test.js'],
-            enabled: true
-          }
-        }
+            enabled: true,
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(profileConfig, true);
-      
+
       expect(result.valid).toBe(true);
       expect(result.normalized).toBeDefined();
       expect(result.normalized!.servers).toBeDefined();
@@ -115,13 +115,13 @@ describe('ConfigValidator', () => {
             // argsとenvが不正な値
             args: 'not-an-array',
             env: null,
-            enabled: 'yes' // boolean型でない
-          }
-        }
+            enabled: 'yes', // boolean型でない
+          },
+        },
       };
 
       const result = await configValidator.repairConfig(config, false);
-      
+
       expect(result.repaired).toBe(true);
       expect(result.changes.length).toBeGreaterThan(0);
       expect(result.config.mcpServers['test-server'].args).toEqual([]);
@@ -134,13 +134,13 @@ describe('ConfigValidator', () => {
         servers: {
           'test-server': {
             command: 'node',
-            args: ['test.js']
-          }
-        }
+            args: ['test.js'],
+          },
+        },
       };
 
       const result = await configValidator.repairConfig(oldConfig, false);
-      
+
       expect(result.repaired).toBe(true);
       expect(result.config.mcpServers).toBeDefined();
       expect(result.config.servers).toBeUndefined();
@@ -151,14 +151,14 @@ describe('ConfigValidator', () => {
       const config = {
         mcpServers: {
           'test-server': {
-            command: 'node'
+            command: 'node',
             // args, env, enabledが省略されている
-          }
-        }
+          },
+        },
       };
 
       const result = await configValidator.repairConfig(config, false);
-      
+
       expect(result.config.mcpServers['test-server'].args).toEqual([]);
       expect(result.config.mcpServers['test-server'].env).toEqual({});
       expect(result.config.mcpServers['test-server'].enabled).toBe(true);
@@ -171,15 +171,15 @@ describe('ConfigValidator', () => {
         mcpServers: {
           'test-server': {
             command: 'node && rm -rf /',
-            enabled: true
-          }
-        }
+            enabled: true,
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.warnings).toBeDefined();
-      expect(result.warnings!.some(w => w.message.includes('潜在的に危険な文字'))).toBe(true);
+      expect(result.warnings!.some((w) => w.message.includes('潜在的に危険な文字'))).toBe(true);
     });
 
     it('ディレクトリトラバーサルを検出する', async () => {
@@ -188,15 +188,15 @@ describe('ConfigValidator', () => {
           'test-server': {
             command: 'node',
             args: ['../../sensitive/file.js'],
-            enabled: true
-          }
-        }
+            enabled: true,
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.warnings).toBeDefined();
-      expect(result.warnings!.some(w => w.message.includes('潜在的に危険な文字'))).toBe(true);
+      expect(result.warnings!.some((w) => w.message.includes('潜在的に危険な文字'))).toBe(true);
     });
   });
 
@@ -204,49 +204,52 @@ describe('ConfigValidator', () => {
     it('存在しないサーバーへの参照を検出する', async () => {
       const config = {
         mcpServers: {
-          'server1': {
+          server1: {
             command: 'node',
-            enabled: true
-          }
+            enabled: true,
+          },
         },
         profiles: {
           'test-profile': {
-            'server1': true,
-            'non-existent-server': true // 存在しないサーバー
-          }
-        }
+            server1: true,
+            'non-existent-server': true, // 存在しないサーバー
+          },
+        },
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.warnings).toBeDefined();
-      expect(result.warnings!.some(w => 
-        w.message.includes('存在しないサーバー') && 
-        w.message.includes('non-existent-server')
-      )).toBe(true);
+      expect(
+        result.warnings!.some(
+          (w) =>
+            w.message.includes('存在しないサーバー') && w.message.includes('non-existent-server')
+        )
+      ).toBe(true);
     });
 
     it('存在しないアクティブプロファイルを検出する', async () => {
       const config = {
         mcpServers: {
-          'server1': {
+          server1: {
             command: 'node',
-            enabled: true
-          }
+            enabled: true,
+          },
         },
         profiles: {
-          'profile1': {}
+          profile1: {},
         },
-        activeProfile: 'non-existent-profile'
+        activeProfile: 'non-existent-profile',
       };
 
       const result = await configValidator.validateConfig(config, false);
-      
+
       expect(result.valid).toBe(false);
-      expect(result.errors!.some(e => 
-        e.message.includes('アクティブプロファイル') && 
-        e.message.includes('存在しません')
-      )).toBe(true);
+      expect(
+        result.errors!.some(
+          (e) => e.message.includes('アクティブプロファイル') && e.message.includes('存在しません')
+        )
+      ).toBe(true);
     });
   });
 });

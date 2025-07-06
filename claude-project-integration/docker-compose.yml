@@ -1,6 +1,6 @@
 # MCP Gateway統合用 Docker Compose 拡張ファイル
 # docker-compose-base.ymlと組み合わせて使用
-version: "3.8"
+version: '3.8'
 
 services:
   # プロキシチェッカー（最初に実行される）
@@ -16,7 +16,7 @@ services:
         fi
       "
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
 
   # MCP Gateway APIサーバー
   mcp-gateway-server:
@@ -25,14 +25,14 @@ services:
       dockerfile: Dockerfile.server
     container_name: mcp-gateway-server
     ports:
-      - "${MCP_API_PORT:-3003}:3003"
+      - '${MCP_API_PORT:-3003}:3003'
     volumes:
       - ./mcp-config.json:/app/mcp-config.json
     environment:
       - MCP_PROXY_PORT=${MCP_PROXY_PORT:-9999}
       - DOCKER_ENV=true
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     depends_on:
       mcp-proxy-check:
         condition: service_completed_successfully
@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile.client
     container_name: mcp-gateway-client
     ports:
-      - "${MCP_WEB_PORT:-3002}:3002"
+      - '${MCP_WEB_PORT:-3002}:3002'
     environment:
       - API_URL=http://mcp-gateway-server:3003
     depends_on:

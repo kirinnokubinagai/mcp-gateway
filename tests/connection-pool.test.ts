@@ -11,8 +11,8 @@ vi.mock('../server/logger', () => ({
     info: vi.fn(),
     debug: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn()
-  })
+    error: vi.fn(),
+  }),
 }));
 
 describe('ConnectionPool', () => {
@@ -28,13 +28,13 @@ describe('ConnectionPool', () => {
     mockTransport = {
       start: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
-      isHealthy: vi.fn().mockResolvedValue(true)
+      isHealthy: vi.fn().mockResolvedValue(true),
     };
 
     mockClient = {
       connect: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
-      listTools: vi.fn().mockResolvedValue({ tools: [] })
+      listTools: vi.fn().mockResolvedValue({ tools: [] }),
     };
 
     // WebSocketTransportのモック
@@ -50,7 +50,7 @@ describe('ConnectionPool', () => {
       idleTimeout: 5000,
       healthCheckIntervalMs: 1000,
       maxHealthCheckFailures: 2,
-      queueTimeout: 2000
+      queueTimeout: 2000,
     });
   });
 
@@ -65,7 +65,7 @@ describe('ConnectionPool', () => {
         websocket: 'ws://localhost:9999',
         command: 'test-command',
         args: ['arg1'],
-        env: { TEST: 'value' }
+        env: { TEST: 'value' },
       };
 
       const connection = await pool.acquire(config);
@@ -82,7 +82,7 @@ describe('ConnectionPool', () => {
       const config: ConnectionConfig = {
         name: 'test-server',
         websocket: 'ws://localhost:9999',
-        command: 'test-command'
+        command: 'test-command',
       };
 
       // 最初の接続
@@ -101,7 +101,7 @@ describe('ConnectionPool', () => {
       const config: ConnectionConfig = {
         name: 'test-server',
         websocket: 'ws://localhost:9999',
-        command: 'test-command'
+        command: 'test-command',
       };
 
       // 上限まで接続を作成
@@ -122,7 +122,7 @@ describe('ConnectionPool', () => {
       const config: ConnectionConfig = {
         name: 'test-server',
         websocket: 'ws://localhost:9999',
-        command: 'test-command'
+        command: 'test-command',
       };
 
       // 上限まで接続を作成
@@ -139,7 +139,7 @@ describe('ConnectionPool', () => {
       const config: ConnectionConfig = {
         name: 'test-server',
         websocket: 'ws://localhost:9999',
-        command: 'test-command'
+        command: 'test-command',
       };
 
       const connection = await pool.acquire(config);
@@ -159,7 +159,7 @@ describe('ConnectionPool', () => {
       const config: ConnectionConfig = {
         name: 'test-server',
         websocket: 'ws://localhost:9999',
-        command: 'test-command'
+        command: 'test-command',
       };
 
       const connection = await pool.acquire(config);
@@ -177,7 +177,7 @@ describe('ConnectionPool', () => {
       const config: ConnectionConfig = {
         name: 'test-server',
         websocket: 'ws://localhost:9999',
-        command: 'test-command'
+        command: 'test-command',
       };
 
       const connection = await pool.acquire(config);
@@ -187,7 +187,7 @@ describe('ConnectionPool', () => {
       mockTransport.isHealthy.mockResolvedValue(false);
 
       // 健全性チェックを待つ
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const stats = pool.getStats();
       expect(stats.totalConnections).toBe(0);
@@ -199,7 +199,7 @@ describe('ConnectionPool', () => {
       const config: ConnectionConfig = {
         name: 'test-server',
         websocket: 'ws://localhost:9999',
-        command: 'test-command'
+        command: 'test-command',
       };
 
       const connection = await pool.acquire(config);
@@ -207,7 +207,7 @@ describe('ConnectionPool', () => {
       pool.release(connection);
 
       // アイドルチェックを待つ（実際のテストでは時間を調整）
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // この例では即座には削除されないが、実際の実装では
       // アイドルタイムアウト後に削除される
@@ -219,13 +219,13 @@ describe('ConnectionPool', () => {
       const config1: ConnectionConfig = {
         name: 'server1',
         websocket: 'ws://localhost:9999',
-        command: 'command1'
+        command: 'command1',
       };
 
       const config2: ConnectionConfig = {
         name: 'server2',
         websocket: 'ws://localhost:9999',
-        command: 'command2'
+        command: 'command2',
       };
 
       const conn1 = await pool.acquire(config1);
@@ -245,7 +245,7 @@ describe('ConnectionPool', () => {
     it('すべての接続を閉じる', async () => {
       const configs = [
         { name: 'server1', websocket: 'ws://localhost:9999', command: 'cmd1' },
-        { name: 'server2', websocket: 'ws://localhost:9999', command: 'cmd2' }
+        { name: 'server2', websocket: 'ws://localhost:9999', command: 'cmd2' },
       ];
 
       for (const config of configs) {
