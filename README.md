@@ -1,13 +1,12 @@
 # MCP Gateway
 
-複数のMCPサーバーを統合し、Dockerネットワーク経由でアクセス可能にするゲートウェイ（Bun専用）
+複数のMCPサーバーを統合し、Dockerネットワーク経由でアクセス可能にするゲートウェイ
 
 ## 📋 必要な環境
 
 ### 必須要件
 
-- **Bun**: v1.0以上（プロキシサーバー用、必須）
-- **Node.js**: v18以上（watch-config.js用、必須）
+- **Node.js**: v18以上
 - **Docker**: v20以上（Web UI使用時）
 - **Docker Compose**: v2以上（Web UI使用時）
 
@@ -16,16 +15,6 @@
 - **OS**: macOS、Linux、Windows (WSL2)
 - **メモリ**: 4GB以上の空きRAM
 - **ストレージ**: 1GB以上の空き容量
-
-### Bunのインストール
-
-```bash
-# macOS、Linux、WSL
-curl -fsSL https://bun.sh/install | bash
-
-# 確認
-bun --version
-```
 
 ## 🎯 特徴
 
@@ -106,7 +95,7 @@ Claude CodeでMCP Gatewayを使用するには、以下の方法があります�
 ```bash
 # 1. プロキシサーバーを起動（別ターミナル）
 cd /path/to/mcp-gateway
-bun run proxy
+npm run proxy
 
 # 2. Claude Codeに追加
 claude mcp add gateway /path/to/mcp-gateway/start-mcp-for-claude.sh
@@ -238,10 +227,10 @@ MCP_WEB_PORT=3002
 
 ```bash
 # プロキシサーバー起動
-bun run proxy
+npm run proxy
 
 # プロキシサーバー起動（設定ファイル監視付き）
-bun run proxy:watch
+npm run proxy:watch
 
 # クリーンアップ
 bun run clean

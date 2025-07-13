@@ -1,8 +1,8 @@
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { configValidator } from './simple-validator.ts';
-import { createLogger } from './logger.ts';
+import { configValidator } from './simple-validator';
+import { createLogger } from './logger';
 
 // @ts-ignore - ESMモジュールの互換性
 const __filename = fileURLToPath(import.meta.url);
@@ -73,7 +73,7 @@ export class ProfileManager {
         });
 
         // 自動修復を試みる
-        const repairResult = await configValidator.repairConfig(rawConfig, isProfileConfig);
+        const repairResult = await configValidator.repairConfig(rawConfig);
         if (repairResult.repaired) {
           logger.info('設定ファイルを自動修復しました', {
             file: this.configPath,
@@ -85,6 +85,12 @@ export class ProfileManager {
 
       return (validationResult.normalized || rawConfig) as MCPConfig;
     } catch (error) {
+      // プロファイル設定ファイルが存在しない場合の処理
+      if ((error as any).code === 'ENOENT' && this.configPath.includes('mcp-config-')) {
+        logger.info(`プロファイル設定ファイルが存在しません。デフォルト設定を返します`, { file: this.configPath });
+        // プロファイル設定ファイルの場合は空のサーバー設定を返す
+        return { mcpServers: {} };
+      }
       logger.error(`設定ファイルの読み込みエラー`, error as Error);
       return { mcpServers: {} };
     }
@@ -188,7 +194,7 @@ export class ProfileManager {
               // 既存の状態がある場合はそれを保持
               const currentState = profile[oldName];
               delete profile[oldName];
-              profile[newName] = preserveStates ? currentState : true;
+              profile[newName] = preserveStates ? (currentState ?? true) : true;
             }
             // 注意: 新しいサーバー名がプロファイルに存在しない場合は何もしない
             // これにより、既存のプロファイル設定が保持される
@@ -271,7 +277,7 @@ export class ProfileManager {
       // 無効化されたサーバーが有効になっている場合をチェック
       for (const serverName of serverNames) {
         const server = config.mcpServers[serverName];
-        if (server.enabled === false && profile[serverName] === true) {
+        if (server && server.enabled === false && profile[serverName] === true) {
           issues.push(
             `プロファイル "${profileName}" で無効化されたサーバー "${serverName}" が有効になっています`
           );
@@ -314,7 +320,7 @@ export class ProfileManager {
       // 無効化されたサーバーの状態を同期
       for (const serverName of serverNames) {
         const server = config.mcpServers[serverName];
-        if (server.enabled === false && profile[serverName] === true) {
+        if (server && server.enabled === false && profile[serverName] === true) {
           profile[serverName] = false;
           hasChanges = true;
           logger.info(`プロファイルのサーバーを無効化`, {

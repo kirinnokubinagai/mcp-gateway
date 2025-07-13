@@ -24,10 +24,13 @@ let debounceTimer = null;
 function startProxy() {
   console.log('🚀 プロキシサーバーを起動しています...');
 
-  proxyProcess = spawn('bun', ['run', 'proxy'], {
+  // tsxで直接実行
+  proxyProcess = spawn('tsx', ['mcp-proxy-server/server.ts'], {
     cwd: path.join(__dirname, '..'),
     stdio: 'inherit',
-    env: { ...process.env },
+    env: { 
+      ...process.env,
+    },
   });
 
   proxyProcess.on('error', (error) => {

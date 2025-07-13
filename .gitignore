@@ -43,8 +43,6 @@ proxy.pid
 # Generated files
 vite.config.d.ts
 
-# Bun
-bun.lockb
 
 # Tool versions
 .tool-versionsmcp-config.json.backup

@@ -1,7 +1,7 @@
 /// <reference path="./types/mcp-sdk.d.ts" />
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { WebSocketTransport } from './websocket-transport.ts';
-import { createLogger } from './logger.ts';
+import { WebSocketTransport } from './websocket-transport';
+import { createLogger } from './logger';
 import { EventEmitter } from 'events';
 
 const logger = createLogger({ module: 'ConnectionPool' });

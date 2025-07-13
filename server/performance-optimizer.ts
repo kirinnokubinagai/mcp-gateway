@@ -12,7 +12,7 @@
 import { performance } from 'perf_hooks';
 import { LRUCache } from 'lru-cache';
 import { setImmediate as setImmediatePromise } from 'timers/promises';
-import { createLogger } from './logger.ts';
+import { createLogger } from './logger';
 
 const logger = createLogger({ module: 'PerformanceOptimizer' });
 

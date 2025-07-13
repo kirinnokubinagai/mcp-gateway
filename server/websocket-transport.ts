@@ -7,7 +7,7 @@ interface Transport {
 
 // JSONRPCMessage type
 type JSONRPCMessage = any;
-import { createLogger } from './logger.ts';
+import { createLogger } from './logger';
 
 const logger = createLogger({ module: 'WebSocketTransport' });
 

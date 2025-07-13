@@ -7,8 +7,8 @@ import { watch } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
-import { StateManager, ServerState } from './state-manager.ts';
-import { WebSocketTransport } from './websocket-transport.ts';
+import { StateManager, ServerState } from './state-manager';
+import { WebSocketTransport } from './websocket-transport';
 import {
   createErrorInfo,
   executeRecoveryStrategy,
@@ -18,10 +18,10 @@ import {
   resetCircuitBreaker,
   ErrorType,
   ErrorSeverity,
-} from './error-handler.ts';
-import { createLogger, setupGlobalErrorHandlers } from './logger.ts';
-import { ConnectionPool, ConnectionConfig } from './connection-pool.ts';
-import { ServerConfig, ProfileConfig, Config, MCPClientInfo, Tool } from './types.ts';
+} from './error-handler';
+import { createLogger, setupGlobalErrorHandlers } from './logger';
+import { ConnectionPool, ConnectionConfig } from './connection-pool';
+import { ServerConfig, ProfileConfig, Config, MCPClientInfo, Tool } from './types';
 import {
   measurePerformance,
   ParallelExecutor,
@@ -29,8 +29,9 @@ import {
   debounce,
   AsyncQueue,
   LazyInitializer,
-} from './performance-optimizer.ts';
-import { configValidator } from './simple-validator.ts';
+} from './performance-optimizer';
+import { configValidator } from './simple-validator';
+import { profileConfigGenerator } from './profile-config-generator';
 
 const logger = createLogger({ module: 'MCPGateway' });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,7 +42,7 @@ const connectionPool = new ConnectionPool({
   maxTotalConnections: 15,
   connectionTimeout: 120000,  // 30秒から120秒に延長
   idleTimeout: 600000,        // 5分から10分に延長
-  healthCheckIntervalMs: 120000,  // 60秒から120秒に延長
+  healthCheckIntervalMs: 0,  // ヘルスチェックを完全に無効化
   maxHealthCheckFailures: 5,      // 3回から5回に増加
   queueTimeout: 180000,           // 60秒から180秒に延長
 });
@@ -113,7 +114,7 @@ async function loadConfig(): Promise<Config> {
       });
 
       // 自動修復を試みる
-      const repairResult = await configValidator.repairConfig(rawConfig, false);
+      const repairResult = await configValidator.repairConfig(rawConfig);
       if (repairResult.repaired) {
         logger.info('設定ファイルを自動修復しました', {
           changes: repairResult.changes,
@@ -405,6 +406,30 @@ async function connectToMCPServer(
     // WebSocket切断時の処理（プールが管理するため、ここでは最小限の処理）
     if (transport instanceof WebSocketTransport) {
       const originalOnClose = transport.onclose;
+      const originalOnError = transport.onerror;
+      
+      // エラーハンドラーの設定
+      transport.onerror = async (error: Error) => {
+        if (originalOnError) {
+          await originalOnError(error);
+        }
+        
+        logger.error(`WebSocket接続エラー`, error, { serverName: name });
+        
+        // エラー状態を設定
+        mcpClients.set(name, {
+          config,
+          configHash: calculateConfigHash(config),
+          status: 'error',
+          statusMessage: `接続エラー: ${error.message}`,
+          error: error.message
+        });
+        await updateServerStatus();
+        
+        // プール接続を削除
+        connectionPool.remove(pooledConnection);
+      };
+      
       transport.onclose = async () => {
         if (originalOnClose) {
           await originalOnClose();
@@ -813,8 +838,9 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
  * 接続プールに接続を返却します。
  *
  * @param name - 切断するMCPサーバーの名前
+ * @param setDisabled - trueの場合、切断後にdisabledステータスを設定
  */
-async function disconnectFromMCPServer(name: string) {
+async function disconnectFromMCPServer(name: string, setDisabled: boolean = false) {
   const clientInfo = mcpClients.get(name);
   if (clientInfo) {
     try {
@@ -832,8 +858,20 @@ async function disconnectFromMCPServer(name: string) {
         }
       }
 
-      mcpClients.delete(name);
-      logger.debug(`切断完了`, { serverName: name });
+      if (setDisabled) {
+        // 無効化の場合は、削除前にdisabledステータスを設定
+        mcpClients.set(name, {
+          config: clientInfo.config,
+          configHash: clientInfo.configHash,
+          status: 'disabled',
+          statusMessage: 'サーバーが無効化されています',
+        });
+      } else {
+        // 通常の切断は削除
+        mcpClients.delete(name);
+      }
+      
+      logger.debug(`切断完了`, { serverName: name, disabled: setDisabled });
     } catch (error) {
       logger.error(`切断エラー`, error as Error, { serverName: name });
     }
@@ -999,15 +1037,15 @@ async function syncWithConfig() {
 
     if (!isEnabled && currentClient) {
       statusChanges.toDisable.push(name);
-      disconnectTasks.push(disconnectFromMCPServer(name));
+      disconnectTasks.push(disconnectFromMCPServer(name, true));
       continue;
     }
 
     if (isEnabled) {
       const newConfigHash = configHashMap.get(name)!;
 
-      // 新規接続が必要な場合
-      if (!currentClient) {
+      // 新規接続が必要な場合（または現在disabledステータスの場合）
+      if (!currentClient || currentClient.status === 'disabled') {
         statusChanges.toAdd.push(name);
         connectTasks.push(
           connectToMCPServer(name, serverConfig, 0).catch((error) => {
@@ -1082,6 +1120,8 @@ async function syncWithConfig() {
     if (disconnectTasks.length > 0) {
       logger.info(`切断タスクを実行中... (${disconnectTasks.length}個)`);
       await Promise.all(disconnectTasks);
+      // 無効化されたサーバーのステータスを更新
+      await updateServerStatus();
     }
 
     // 更新タスク（切断→再接続）を順次実行
@@ -1204,6 +1244,14 @@ async function main() {
   // グローバルエラーハンドラーを設定
   setupGlobalErrorHandlers();
 
+  // プロファイル設定ファイルの自動生成
+  try {
+    await profileConfigGenerator.ensureProfileConfigs();
+    logger.info('プロファイル設定ファイルの確認完了');
+  } catch (error) {
+    logger.error('プロファイル設定ファイルの生成エラー', error as Error);
+  }
+
   // メモリ管理の設定 - 現在は無効化
 
   // 状態管理を初期化
@@ -1254,8 +1302,8 @@ async function main() {
   // syncWithConfigは内部でエラーハンドリングするので、ここでは待つだけ
   await syncWithConfig();
 
-  // 設定ファイル監視を開始
-  startConfigWatcher();
+  // 設定ファイル監視を開始（一時的に無効化）
+  // startConfigWatcher();
 
   // 定期的に接続プールの統計情報を出力とメモリ情報
   const monitoringInterval = setInterval(() => {

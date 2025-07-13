@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 /**
  * MCPプロキシサーバー
@@ -7,6 +7,9 @@
 
 import { spawn, execSync } from 'child_process';
 import type { ChildProcess } from 'child_process';
+import { WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
+import { createServer } from 'http';
 
 // プロセス終了時のクリーンアップ
 process.on('SIGINT', () => {
@@ -82,7 +85,7 @@ type IncomingMessage = InitMessage | StdinMessage | HostCommandMessage | PingMes
 
 // 接続情報の管理
 interface ConnectionInfo {
-  ws: any;
+  ws: WebSocket;
   mcpProcess: ChildProcess | null;
   config: InitMessage | null;
   lastActivity: number;
@@ -95,8 +98,6 @@ const connections = new Map<string, ConnectionInfo>();
 let connectionCounter = 0;
 
 const PORT = Number(process.env.MCP_PROXY_PORT || process.env.PORT) || 9999;
-
-console.error('🚀 MCPプロキシサーバーを起動中...');
 
 // コンテナの健全性チェック用マップ
 const containerMonitors = new Map<string, NodeJS.Timeout>();
@@ -181,62 +182,55 @@ function stopContainerMonitoring(containerName: string) {
   }
 }
 
-// Bunのネイティブサーバー
-Bun.serve({
-  port: PORT,
-  hostname: '0.0.0.0',
+// HTTPサーバーとWebSocketサーバーの作成
+const server = createServer((req, res) => {
+  res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('WebSocket接続が必要です');
+});
 
-  fetch(req, server) {
-    // WebSocketアップグレード
-    if (server.upgrade(req)) {
-      return; // WebSocketハンドラーで処理
-    }
-    return new Response('WebSocket接続が必要です', { status: 400 });
-  },
+const wss = new WebSocketServer({ server });
 
-  websocket: {
-    open(ws) {
-      const connectionId = `conn-${++connectionCounter}`;
-      console.log(`✅ 新しいWebSocket接続を受信: ${connectionId}`);
+wss.on('connection', (ws: WebSocket) => {
+  const connectionId = `conn-${++connectionCounter}`;
+  console.log(`✅ 新しいWebSocket接続を受信: ${connectionId}`);
 
-      // 接続情報を管理
-      const connectionInfo: ConnectionInfo = {
-        ws,
-        mcpProcess: null,
-        config: null,
-        lastActivity: Date.now(),
-        connectionId,
-        messageBuffer: [],
-        flushTimer: undefined,
-      };
+  // 接続情報を管理
+  const connectionInfo: ConnectionInfo = {
+    ws,
+    mcpProcess: null,
+    config: null,
+    lastActivity: Date.now(),
+    connectionId,
+    messageBuffer: [],
+    flushTimer: undefined,
+  };
 
-      connections.set(connectionId, connectionInfo);
-      (ws as any).connectionId = connectionId;
+  connections.set(connectionId, connectionInfo);
+  (ws as any).connectionId = connectionId;
 
-      console.log(`[ProxyServer] 現在の接続数: ${connections.size}`);
-    },
+  console.log(`[ProxyServer] 現在の接続数: ${connections.size}`);
 
-    message(ws, data) {
-      try {
-        const message = JSON.parse(data.toString()) as IncomingMessage;
-        const connectionId = (ws as any).connectionId;
-        const connectionInfo = connections.get(connectionId);
+  ws.on('message', (data: Buffer) => {
+    try {
+      const message = JSON.parse(data.toString()) as IncomingMessage;
+      const connectionId = (ws as any).connectionId;
+      const connectionInfo = connections.get(connectionId);
 
-        if (connectionInfo) {
-          connectionInfo.lastActivity = Date.now();
-        }
+      if (connectionInfo) {
+        connectionInfo.lastActivity = Date.now();
+      }
 
-        // Pingメッセージの処理
-        if (message.type === 'ping') {
-          const pongMessage: OutputMessage = {
-            type: 'pong',
-          };
-          ws.send(JSON.stringify(pongMessage));
-          return;
-        }
+      // Pingメッセージの処理
+      if (message.type === 'ping') {
+        const pongMessage: OutputMessage = {
+          type: 'pong',
+        };
+        ws.send(JSON.stringify(pongMessage));
+        return;
+      }
 
-        // 初回メッセージは設定
-        if (!connectionInfo?.mcpProcess && message.type === 'init') {
+      // 初回メッセージは設定
+      if (!connectionInfo?.mcpProcess && message.type === 'init') {
           const config = message;
           if (connectionInfo) {
             connectionInfo.config = config;
@@ -290,7 +284,6 @@ Bun.serve({
 
               // 既存のコンテナをチェックして再利用
               try {
-                const { execSync } = require('child_process');
                 // コンテナの状態をチェック
                 const containerExists = (() => {
                   try {
@@ -316,9 +309,80 @@ Bun.serve({
                     console.log(`✅ 既存のコンテナが実行中です: ${containerName}`);
                     console.log(`🔄 既存のコンテナを再利用します: ${containerName}`);
                     
-                    // 既存のコンテナが実行中の場合はそのまま利用
-                    // コンテナ名は既に設定されているので、以降の処理を継続
-                    skipContainerCreation = true;
+                    // 既存のコンテナにアタッチ
+                    const attachArgs = ['attach', '--sig-proxy=false', containerName];
+                    const attachProcess = spawn('docker', attachArgs, {
+                      stdio: ['pipe', 'pipe', 'pipe'],
+                    });
+                    
+                    if (connectionInfo) {
+                      connectionInfo.mcpProcess = attachProcess;
+                    }
+                    
+                    // プロセスを管理マップに保存
+                    containerProcesses.set(containerName, attachProcess);
+                    console.log(`💾 アタッチプロセスを保存しました: ${containerName}`);
+                    
+                    // アタッチプロセスのエラーハンドリング
+                    attachProcess.on('error', (error: Error) => {
+                      console.error(`❌ アタッチエラー (${containerName}):`, error.message);
+                      const errorMessage: OutputMessage = {
+                        type: 'error',
+                        message: `コンテナアタッチエラー: ${error.message}`,
+                      };
+                      ws.send(JSON.stringify(errorMessage));
+                    });
+                    
+                    // MCPサーバーからの出力をWebSocketに転送
+                    attachProcess.stdout?.on('data', (data: Buffer) => {
+                      const output = data.toString();
+                      console.log(`📤 stdout from attached container:`, output);
+                      
+                      if (connectionInfo) {
+                        connectionInfo.messageBuffer.push({
+                          type: 'stdout',
+                          data: output,
+                        });
+                        
+                        // バッチ送信のスケジュール
+                        if (!connectionInfo.flushTimer) {
+                          connectionInfo.flushTimer = setTimeout(() => {
+                            flushMessageBuffer(connectionInfo);
+                          }, 10);
+                        }
+                      }
+                    });
+                    
+                    attachProcess.stderr?.on('data', (data: Buffer) => {
+                      const errorMsg = data.toString();
+                      console.error(`❌ stderr from attached container:`, errorMsg);
+                      const errorMessage: OutputMessage = {
+                        type: 'stderr',
+                        data: errorMsg,
+                      };
+                      ws.send(JSON.stringify(errorMessage));
+                    });
+                    
+                    attachProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+                      console.log(`アタッチプロセス終了: code=${code}, signal=${signal}`);
+                      containerProcesses.delete(containerName);
+                      const exitMessage: OutputMessage = {
+                        type: 'exit',
+                        code,
+                        signal,
+                      };
+                      ws.send(JSON.stringify(exitMessage));
+                      ws.close();
+                    });
+                    
+                    // 準備完了メッセージを送信
+                    const readyMessage: OutputMessage = {
+                      type: 'ready',
+                      containerName: containerName,
+                    };
+                    ws.send(JSON.stringify(readyMessage));
+                    
+                    return; // ここで処理を終了
                   } else {
                     // 停止しているコンテナを削除
                     execSync(`docker rm ${containerName} 2>/dev/null || true`, { stdio: 'ignore' });
@@ -466,11 +530,13 @@ Bun.serve({
             ws.close();
           });
 
+          // すぐにreadyメッセージを送信
           const readyMessage: OutputMessage = {
             type: 'ready',
             message: 'MCPサーバーが起動しました',
           };
           ws.send(JSON.stringify(readyMessage));
+          console.log('✅ 準備完了メッセージを送信しました');
 
           // Dockerコンテナの場合は健全性チェックを開始
           if (config.command === 'docker' && args.includes('run')) {
@@ -554,31 +620,31 @@ Bun.serve({
             ws.send(JSON.stringify(errorMessage));
           });
         }
-      } catch (e) {
-        console.error('メッセージ処理エラー:', e);
-        const errorMessage: OutputMessage = {
-          type: 'error',
-          message: (e as Error).message,
-        };
-        ws.send(JSON.stringify(errorMessage));
-      }
-    },
+    } catch (e) {
+      console.error('メッセージ処理エラー:', e);
+      const errorMessage: OutputMessage = {
+        type: 'error',
+        message: (e as Error).message,
+      };
+      ws.send(JSON.stringify(errorMessage));
+    }
+  });
 
-    close(ws) {
-      const connectionId = (ws as any).connectionId;
-      const connectionInfo = connections.get(connectionId);
+  ws.on('close', () => {
+    const connectionId = (ws as any).connectionId;
+    const connectionInfo = connections.get(connectionId);
 
-      console.log(`[ProxyServer] WebSocket接続が閉じられました: ${connectionId}`);
+    console.log(`[ProxyServer] WebSocket接続が閉じられました: ${connectionId}`);
 
-      if (connectionInfo) {
-        const { mcpProcess, config } = connectionInfo;
+    if (connectionInfo) {
+      const { mcpProcess, config } = connectionInfo;
 
-        if (mcpProcess) {
-          console.log(`[ProxyServer] プロセスを終了します: ${config?.command}`);
-          mcpProcess.kill();
+      if (mcpProcess) {
+        console.log(`[ProxyServer] プロセスを終了します: ${config?.command}`);
+        mcpProcess.kill();
 
-          // Dockerコンテナの場合は追加のクリーンアップ
-          if (config && config.command === 'docker' && config.args?.includes('run')) {
+        // Dockerコンテナの場合は追加のクリーンアップ
+        if (config && config.command === 'docker' && config.args?.includes('run')) {
             const args = config.args || [];
             const imageIndex = args.findIndex(
               (arg: string) => arg.includes(':') && !arg.startsWith('-')
@@ -618,23 +684,37 @@ Bun.serve({
                 console.error(`コンテナクリーンアップエラー: ${e}`);
               }
             }
-          }
-
-          // バッファをフラッシュ
-          if (connectionInfo.flushTimer) {
-            clearTimeout(connectionInfo.flushTimer);
-            flushMessageBuffer(connectionInfo);
-          }
-
-          // 接続情報をクリア
-          connections.delete(connectionId);
-          console.log(
-            `[ProxyServer] 接続を削除しました: ${connectionId}, 残り接続数: ${connections.size}`
-          );
         }
+
+        // バッファをフラッシュ
+        if (connectionInfo.flushTimer) {
+          clearTimeout(connectionInfo.flushTimer);
+          flushMessageBuffer(connectionInfo);
+        }
+
+        // 接続情報をクリア
+        connections.delete(connectionId);
+        console.log(
+          `[ProxyServer] 接続を削除しました: ${connectionId}, 残り接続数: ${connections.size}`
+        );
       }
-    },
-  },
+    }
+  });
+});
+
+// サーバーを起動
+server.listen(PORT, '0.0.0.0', () => {
+  console.error(`✨ MCPプロキシサーバーが起動しました`);
+  console.log(`📍 WebSocket URL: ws://localhost:${PORT}`);
+  console.log('');
+  console.log('使用方法:');
+  console.log('1. ホストでこのプロキシサーバーを起動');
+  console.log('2. DockerコンテナからWebSocket接続');
+  console.log('3. 初期化メッセージを送信:');
+  console.log(
+    '   {"type":"init","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem"]}'
+  );
+  console.log('4. stdin/stdoutをWebSocket経由で通信');
 });
 
 // メッセージバッファをフラッシュする関数
@@ -662,28 +742,16 @@ function flushMessageBuffer(connInfo: ConnectionInfo) {
   }
 }
 
-console.error(`✨ MCPプロキシサーバーが起動しました`);
-console.log(`📍 WebSocket URL: ws://localhost:${PORT}`);
-console.log('');
-console.log('使用方法:');
-console.log('1. ホストでこのプロキシサーバーを起動');
-console.log('2. DockerコンテナからWebSocket接続');
-console.log('3. 初期化メッセージを送信:');
-console.log(
-  '   {"type":"init","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem"]}'
-);
-console.log('4. stdin/stdoutをWebSocket経由で通信');
 
 // 定期的な接続健全性チェック（60秒ごと）
 setInterval(() => {
-  const now = Date.now();
-  const timeout = 5 * 60 * 1000; // 5分間アクティビティがない接続はクリーンアップ
-
+  // WebSocketの状態チェックのみ行う（アイドルタイムアウトは削除）
   for (const [connectionId, info] of connections.entries()) {
-    if (now - info.lastActivity > timeout) {
-      console.log(`[ProxyServer] 非アクティブな接続をクリーンアップ: ${connectionId}`);
-      if (info.ws && typeof info.ws.close === 'function') {
-        info.ws.close();
+    if (info.ws && info.ws.readyState !== 1) { // 1 = OPEN
+      console.log(`[ProxyServer] 切断された接続をクリーンアップ: ${connectionId}`);
+      connections.delete(connectionId);
+      if (info.mcpProcess) {
+        info.mcpProcess.kill('SIGTERM');
       }
     }
   }

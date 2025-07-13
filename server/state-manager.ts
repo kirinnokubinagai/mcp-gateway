@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
-import { createLogger } from './logger.ts';
-import { ServerConfig, Tool } from './types.ts';
+import { createLogger } from './logger';
+import { ServerConfig, Tool } from './types';
 
 const logger = createLogger({ module: 'StateManager' });
 

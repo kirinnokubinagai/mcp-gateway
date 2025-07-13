@@ -1,5 +1,5 @@
 export class SimpleConfigValidator {
-  async validateConfig(config: any): Promise<{ valid: boolean; errors?: any[] }> {
+  async validateConfig(config: any, isProfile?: boolean): Promise<{ valid: boolean; errors?: any[]; warnings?: any[]; normalized?: any }> {
     
     if (!config || typeof config !== 'object') {
       return {
@@ -21,7 +21,11 @@ export class SimpleConfigValidator {
       };
     }
     
-    return { valid: true };
+    return { 
+      valid: true,
+      warnings: [],
+      normalized: config
+    };
   }
   
   async repairConfig(config: any): Promise<any> {

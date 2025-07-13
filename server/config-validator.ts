@@ -4,14 +4,14 @@
 
 import Ajv from 'ajv';
 import ajvErrors from 'ajv-errors';
-import { Config, ServerConfig } from './types.ts';
+import { Config, ServerConfig } from './types';
 import {
   configSchema,
   profileBasedConfigSchema,
   CONFIG_SCHEMA_VERSION,
   validationRules,
-} from './schemas/config-schema.ts';
-import { migrateConfig, compareVersions } from './schemas/migrations.ts';
+} from './schemas/config-schema';
+import { migrateConfig, compareVersions } from './schemas/migrations';
 import * as path from 'path';
 
 export interface ValidationResult {

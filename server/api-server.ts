@@ -3,13 +3,14 @@ import { cors } from 'hono/cors';
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { notifyConfigChange, stateManager, scheduleReconnect } from './index.ts';
-import { profileManager } from './profile-manager.ts';
-import { getErrorStatus, resetCircuitBreaker, resetAllCircuitBreakers } from './error-handler.ts';
-import { configValidator } from './simple-validator.ts';
-import { createLogger } from './logger.ts';
-import { configCache, AsyncQueue } from './performance-optimizer.ts';
-import { ServerConfig } from './types.ts';
+import { notifyConfigChange, stateManager, scheduleReconnect } from './index';
+import { profileManager } from './profile-manager';
+import { getErrorStatus, resetCircuitBreaker, resetAllCircuitBreakers } from './error-handler';
+import { configValidator } from './simple-validator';
+import { createLogger } from './logger';
+import { configCache, AsyncQueue } from './performance-optimizer';
+import { ServerConfig } from './types';
+import { profileConfigGenerator } from './profile-config-generator';
 
 const logger = createLogger({ module: 'APIServer' });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -523,13 +524,21 @@ app.post('/api/validate/profile/:profile', async (c) => {
     const { repair = false } = body;
 
     const profilePath = path.join(__dirname, `../mcp-config-${profile}.json`);
+    
+    // プロファイル設定ファイルが存在しない場合は生成
+    const exists = await profileConfigGenerator.checkProfileConfigExists(profile);
+    if (!exists) {
+      logger.info(`プロファイル設定ファイルが存在しないため生成します`, { profile });
+      await profileConfigGenerator.ensureProfileConfigs();
+    }
+    
     const data = await readFile(profilePath, 'utf-8');
     const config = JSON.parse(data);
 
     const validationResult = await configValidator.validateConfig(config, true);
 
     if (!validationResult.valid && repair) {
-      const repairResult = await configValidator.repairConfig(config, true);
+      const repairResult = await configValidator.repairConfig(config);
       if (repairResult.repaired) {
         await writeFile(profilePath, JSON.stringify(repairResult.config, null, 2));
         return c.json({

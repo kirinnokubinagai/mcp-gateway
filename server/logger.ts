@@ -194,7 +194,7 @@ class Logger {
           entry.source = {
             method: match[1],
             file: match[2],
-            line: parseInt(match[3]),
+            line: parseInt(match[3] || '0'),
           };
         }
       }

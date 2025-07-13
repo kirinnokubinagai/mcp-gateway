@@ -1,4 +1,4 @@
-import { configValidator } from './simple-validator.ts';
+import { configValidator } from './simple-validator';
 import fs from 'fs/promises';
 
 async function test() {

@@ -1,4 +1,4 @@
-import { createLogger } from './logger.ts';
+import { createLogger } from './logger';
 
 const logger = createLogger({ module: 'ErrorHandler' });
 
