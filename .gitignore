@@ -1,63 +1,6 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# Dependencies
 node_modules
-*/node_modules
-**/node_modules
-
-# Build outputs
-dist
-dist-server
-dist-ssr
-build
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+pnpm-lock.yaml
+ui/dist
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Runtime files
-*.local
-*.tsbuildinfo
-
-# Backup and temporary files
-*.backup
-*.bak
-.crash_count
-.last_crash
-
-# Config files (runtime generated)
-mcp-config.json
-mcp-status.json
-mcp-tools.json
-
-# Proxy logs and PID files
-proxy.log
-proxy.pid
-
-# Generated files
-vite.config.d.ts
-
-# Tool versions
-.tool-versions
-
-# Project documentation (development only)
-CLAUDE.md
+.idea
+.vscode

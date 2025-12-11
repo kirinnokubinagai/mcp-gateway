@@ -1,9 +1,0 @@
-{
-  "name": "mcp-proxy-server",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "start": "bun server.ts",
-    "dev": "bun --watch server.ts"
-  }
-}

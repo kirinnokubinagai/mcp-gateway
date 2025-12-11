@@ -1,62 +1,29 @@
 {
   "name": "mcp-gateway",
-  "private": true,
-  "version": "2.0.0",
+  "version": "0.4.0",
+  "description": "MCP Gateway with WebSocket proxy and shadcn UI",
   "type": "module",
+  "bin": {
+    "mcp-gateway": "./src/cli.js",
+    "mcp-gateway-stdio": "./scripts/mcp-gateway-stdio.sh"
+  },
   "scripts": {
-    "start": "npm run proxy:daemon && sleep 2 && docker-compose up -d",
-    "stop": "docker-compose down && npm run proxy:stop",
-    "restart": "npm run stop && npm run start",
-    "proxy": "tsx mcp-proxy-server/server.ts",
-    "proxy:daemon": "nohup node scripts/watch-config.js > proxy.log 2>&1 & echo $! > proxy.pid && echo 'プロキシサーバーをデーモンとして起動しました (PID: '$(cat proxy.pid)')'",
-    "proxy:stop": "[ -f proxy.pid ] && kill -9 $(cat proxy.pid) && rm proxy.pid && echo 'プロキシサーバーを停止しました' || echo 'プロキシサーバーは起動していません'",
-    "proxy:logs": "tail -f proxy.log",
-    "dev:server": "cd server && tsx index.ts",
-    "dev:client": "cd src && npm run dev",
-    "build": "cd server && tsc",
-    "docker:build": "docker-compose build",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f",
-    "docker:restart": "docker-compose restart",
-    "docker:clean": "docker-compose down -v && docker ps -a | grep mcp-proxy | awk '{print $1}' | xargs -r docker rm -f",
-    "rebuild": "docker-compose down && docker-compose build --no-cache && docker-compose up -d",
-    "typecheck": "cd server && tsc --noEmit",
-    "test": "cd server && vitest run",
-    "test:watch": "cd server && vitest",
-    "test:websocket": "node tests/websocket-stability.test.js",
-    "validate": "node scripts/validate-config.js",
-    "validate:all": "node scripts/validate-config.js --all",
-    "validate:repair": "node scripts/validate-config.js --repair",
-    "validate:repair:all": "node scripts/validate-config.js --repair --all",
-    "lint": "eslint --ext .ts,.tsx server mcp-proxy-server src",
-    "lint:fix": "eslint --ext .ts,.tsx server mcp-proxy-server src --fix",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
-    "check": "npm run typecheck && npm run lint && npm run format:check",
-    "fix": "npm run lint:fix && npm run format"
+    "start": "NODE_ENV=production node src/server.js",
+    "dev": "NODE_ENV=development node src/server.js",
+    "stdio": "node src/gateway-stdio.js",
+    "test": "node --test tests/runtime.test.js",
+    "build:ui": "pnpm --filter mcp-gateway-ui run build",
+    "dev:ui": "pnpm --filter mcp-gateway-ui run dev",
+    "init:samples": "node src/init-samples.js"
   },
   "dependencies": {
-    "ajv": "^8.12.0",
-    "ajv-errors": "^3.0.0",
-    "chalk": "^5.3.0",
-    "esbuild": "^0.25.6",
-    "tsx": "^4.20.3",
-    "ws": "^8.18.3"
+    "ws": "^8.18.0"
   },
-  "devDependencies": {
-    "@types/node": "^24.0.10",
-    "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "eslint": "^8.57.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-import": "^2.29.1",
-    "eslint-plugin-prettier": "^5.1.3",
-    "hono": "^4.8.4",
-    "prettier": "^3.2.5",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.3",
-    "vitest": "^3.2.4"
-  }
+  "engines": {
+    "node": ">=18.18"
+  },
+  "packageManager": "pnpm@10.25.0",
+  "workspaces": [
+    "ui"
+  ]
 }
